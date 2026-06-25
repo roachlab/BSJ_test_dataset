@@ -1,0 +1,40 @@
+neg_id	category	chrom	start_0based	end_0based	strand	expected	trap
+DEC10_1	DEC10_snp_near_junction	chrT2	55860	56860	+	no_circle_call	variant near breakpoint must not create a spurious isoform/shift
+DEC10_2	DEC10_snp_near_junction	chrT2	62090	63090	+	no_circle_call	variant near breakpoint must not create a spurious isoform/shift
+DEC10_3	DEC10_snp_near_junction	chrT2	68320	69320	+	no_circle_call	variant near breakpoint must not create a spurious isoform/shift
+DEC1_1	DEC1_tandem_duplication	chrT2	141830	142830	+	no_circle_call	linear tandem duplication; rotated reads look back-spliced (GT/AG flanked)
+DEC1_2	DEC1_tandem_duplication	chrT2	147030	148030	+	no_circle_call	linear tandem duplication; rotated reads look back-spliced (GT/AG flanked)
+DEC1_3	DEC1_tandem_duplication	chrT2	152230	153230	+	no_circle_call	linear tandem duplication; rotated reads look back-spliced (GT/AG flanked)
+DEC1_4	DEC1_tandem_duplication	chrT2	157430	158430	+	no_circle_call	linear tandem duplication; rotated reads look back-spliced (GT/AG flanked)
+DEC2_1	DEC2_linear_only	chrT2	162830	164680	+	no_circle_call	normal forward splice junctions must not be called as BSJ
+DEC2_2	DEC2_linear_only	chrT2	169080	170930	+	no_circle_call	normal forward splice junctions must not be called as BSJ
+DEC2_3	DEC2_linear_only	chrT2	175330	177180	+	no_circle_call	normal forward splice junctions must not be called as BSJ
+DEC2_4	DEC2_linear_only	chrT2	181580	183430	+	no_circle_call	normal forward splice junctions must not be called as BSJ
+DEC2_5	DEC2_linear_only	chrT2	187830	189680	+	no_circle_call	normal forward splice junctions must not be called as BSJ
+DEC3_1	DEC3_paralog	chrT2	194080	195120	+	no_circle_call	multi-mapping reads between paralogs can fake chimeric BSJ
+DEC3_2	DEC3_paralog	chrT2	199520	200560	+	no_circle_call	multi-mapping reads between paralogs can fake chimeric BSJ
+DEC3_3	DEC3_paralog	chrT2	204960	206000	+	no_circle_call	multi-mapping reads between paralogs can fake chimeric BSJ
+DEC3_4	DEC3_paralog	chrT2	210400	211440	+	no_circle_call	multi-mapping reads between paralogs can fake chimeric BSJ
+DEC4_1	DEC4_inverted_repeat	chrT2	215640	216190	+	no_circle_call	inverted repeat read mimics chimeric/back-splice junction
+DEC4_2	DEC4_inverted_repeat	chrT2	220340	220890	+	no_circle_call	inverted repeat read mimics chimeric/back-splice junction
+DEC4_3	DEC4_inverted_repeat	chrT2	225040	225590	+	no_circle_call	inverted repeat read mimics chimeric/back-splice junction
+DEC5_1	DEC5_readthrough	chrT2	229940	236300	+	no_circle_call	linear readthrough/trans-splice vs true back-splice
+DEC5_2	DEC5_readthrough	chrT2	240700	247060	+	no_circle_call	linear readthrough/trans-splice vs true back-splice
+DEC5_3	DEC5_readthrough	chrT2	251460	257820	+	no_circle_call	linear readthrough/trans-splice vs true back-splice
+DEC6_1	DEC6_low_complexity	chrT1	161590	161890	+	no_circle_call	homopolymer/STR produces ambiguous anchors
+DEC6_2	DEC6_low_complexity	chrT1	165990	166290	+	no_circle_call	homopolymer/STR produces ambiguous anchors
+DEC6_3	DEC6_low_complexity	chrT1	170390	170690	+	no_circle_call	homopolymer/STR produces ambiguous anchors
+DEC7_1	DEC7_repeat_in_gene	chrT1	174990	176960	+	no_circle_call	JOINT: retain forward SJs AND reject repeat-induced pseudo-BSJ
+DEC7_2	DEC7_repeat_in_gene	chrT1	181360	183330	+	no_circle_call	JOINT: retain forward SJs AND reject repeat-induced pseudo-BSJ
+DEC7_3	DEC7_repeat_in_gene	chrT1	187730	189700	+	no_circle_call	JOINT: retain forward SJs AND reject repeat-induced pseudo-BSJ
+DEC7_4	DEC7_repeat_in_gene	chrT1	194100	196070	+	no_circle_call	JOINT: retain forward SJs AND reject repeat-induced pseudo-BSJ
+DEC8_1	DEC8_duplicated_exon	chrT1	200470	203080	+	no_circle_call	JOINT: retain forward SJs AND reject duplicated-exon pseudo-BSJ
+DEC8_2	DEC8_duplicated_exon	chrT1	207480	210090	+	no_circle_call	JOINT: retain forward SJs AND reject duplicated-exon pseudo-BSJ
+DEC8_3	DEC8_duplicated_exon	chrT1	214490	217100	+	no_circle_call	JOINT: retain forward SJs AND reject duplicated-exon pseudo-BSJ
+DEC8_4	DEC8_duplicated_exon	chrT1	221500	224110	+	no_circle_call	JOINT: retain forward SJs AND reject duplicated-exon pseudo-BSJ
+DEC9_1	DEC9_template_switching	chrT1	228310	228910	+	no_circle_call	reverse-transcriptase template switch, not a real circle
+DEC9_2	DEC9_template_switching	chrT1	233210	233810	+	no_circle_call	reverse-transcriptase template switch, not a real circle
+DEC9_3	DEC9_template_switching	chrT1	238110	238710	+	no_circle_call	reverse-transcriptase template switch, not a real circle
+DEC9_4	DEC9_template_switching	chrT1	243010	243610	+	no_circle_call	reverse-transcriptase template switch, not a real circle
+DEC11_1	DEC11_high_expression	chrT1	248110	250410	+	no_circle_call	high linear background must not drown low-coverage circles
+DEC11_2	DEC11_high_expression	chrT1	254810	257110	+	no_circle_call	high linear background must not drown low-coverage circles

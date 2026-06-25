@@ -1,0 +1,19 @@
+name: bsj-bench
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python>=3.11
+  - snakemake-minimal>=8        # Snakemake 8.x
+  - star
+  - bwa
+  - samtools
+  - circexplorer2
+  - ucsc-gtftogenepred
+  - perl
+  - numpy
+  - matplotlib-base
+  - pyyaml
+  - pip
+# Note: CIRI2 is not on bioconda; the Dockerfile fetches CIRI2.pl at build time.
+# For a bare conda env, download CIRI2.pl yourself and `export CIRI2=/path/to/CIRI2.pl`.

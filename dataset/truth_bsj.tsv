@@ -1,0 +1,50 @@
+bsj_id	category	chrom	acceptor_pos_0based	donor_pos_0based	circle_start_0based	circle_end_0based	strand	splice_motif	circle_type	expected_junction_reads	breakpoint_tolerance_bp	notes
+BSJ_A1	A_canonical_multiexon	chrT1	13020	14059	13020	14060	+	GT/AG	exonic	200	0	canonical multi-exon circle
+BSJ_A2	A_canonical_multiexon	chrT1	20130	21169	20130	21170	+	GT/AG	exonic	100	0	canonical multi-exon circle
+BSJ_A3	A_canonical_multiexon	chrT1	27240	28279	27240	28280	+	GT/AG	exonic	40	0	canonical multi-exon circle
+BSJ_A4	A_canonical_multiexon	chrT1	34350	35389	34350	35390	+	GT/AG	exonic	12	0	canonical multi-exon circle
+BSJ_A5	A_canonical_multiexon	chrT1	41460	42499	41460	42500	+	GT/AG	exonic	3	0	canonical multi-exon circle
+BSJ_B1	B_single_exon	chrT1	47750	48149	47750	48150	+	GT/AG	single_exon	80	0	single-exon self-circularization
+BSJ_B2	B_single_exon	chrT1	53350	53749	53350	53750	+	GT/AG	single_exon	30	0	single-exon self-circularization
+BSJ_B3	B_single_exon	chrT1	58950	59349	58950	59350	+	GT/AG	single_exon	8	0	single-exon self-circularization
+BSJ_B4	B_single_exon	chrT1	64550	64949	64550	64950	+	GT/AG	single_exon	2	0	single-exon self-circularization
+BSJ_C1	C_unannotated_exon	chrT1	71750	71929	71750	71930	+	GT/AG	exonic_unannotated	60	0	circle exon absent from GTF
+BSJ_C2	C_unannotated_exon	chrT1	78700	78879	78700	78880	+	GT/AG	exonic_unannotated	20	0	circle exon absent from GTF
+BSJ_C3	C_unannotated_exon	chrT1	85650	85829	85650	85830	+	GT/AG	exonic_unannotated	6	0	circle exon absent from GTF
+BSJ_C4	C_unannotated_exon	chrT1	92600	92779	92600	92780	+	GT/AG	exonic_unannotated	2	0	circle exon absent from GTF
+BSJ_D1	D_intronic_ciRNA	chrT1	98160	98379	98160	98380	+	AC/GA	intronic	25	0	circular intronic RNA, no exon overlap
+BSJ_D2	D_intronic_ciRNA	chrT1	104100	104319	104100	104320	+	AG/GA	intronic	8	0	circular intronic RNA, no exon overlap
+BSJ_D3	D_intronic_ciRNA	chrT1	110040	110259	110040	110260	+	TG/AA	intronic	3	0	circular intronic RNA, no exon overlap
+BSJ_D4	D_intronic_ciRNA	chrT1	115980	116199	115980	116200	+	CA/CT	intronic	1	0	circular intronic RNA, no exon overlap
+BSJ_E1	E_EIciRNA	chrT1	121710	122389	121710	122390	+	GT/AG	exon_intron	40	0	exon-intron circle (retained intron)
+BSJ_E2	E_EIciRNA	chrT1	127550	128229	127550	128230	+	GT/AG	exon_intron	10	0	exon-intron circle (retained intron)
+BSJ_E3	E_EIciRNA	chrT1	133390	134069	133390	134070	+	GT/AG	exon_intron	3	0	exon-intron circle (retained intron)
+BSJ_F1	F_minus_strand	chrT2	14049	13050	13050	14050	-	GT/AG	exonic	120	0	minus-strand circle
+BSJ_F2	F_minus_strand	chrT2	20299	19300	19300	20300	-	GT/AG	exonic	40	0	minus-strand circle
+BSJ_F3	F_minus_strand	chrT2	26549	25550	25550	26550	-	GT/AG	exonic	10	0	minus-strand circle
+BSJ_F4	F_minus_strand	chrT2	32799	31800	31800	32800	-	GT/AG	exonic	2	0	minus-strand circle
+BSJ_G1	G_noncanonical	chrT2	37200	38179	37200	38180	+	AT/AC	exonic	30	0	non-canonical back-splice motif
+BSJ_G2	G_noncanonical	chrT2	43420	44399	43420	44400	+	AT/AC	exonic	8	0	non-canonical back-splice motif
+BSJ_G3	G_noncanonical	chrT2	49640	50619	49640	50620	+	AT/AC	exonic	2	0	non-canonical back-splice motif
+BSJ_H1	H_fuzzy_breakpoint	chrT2	55860	56859	55860	56860	+	GT/AG	exonic	60	6	6bp microhomology -> breakpoint ambiguous +/-6
+BSJ_H2	H_fuzzy_breakpoint	chrT2	62090	63089	62090	63090	+	GT/AG	exonic	20	5	5bp microhomology -> breakpoint ambiguous +/-5
+BSJ_H3	H_fuzzy_breakpoint	chrT2	68320	69319	68320	69320	+	GT/AG	exonic	6	4	4bp microhomology -> breakpoint ambiguous +/-4
+BSJ_H4	H_fuzzy_breakpoint	chrT2	74550	75549	74550	75550	+	GT/AG	exonic	2	3	3bp microhomology -> breakpoint ambiguous +/-3
+BSJ_I1	I_subreadlen_rolling	chrT2	80780	80869	80780	80870	+	GT/AG	single_exon_short	50	0	circle 90bp < read len; reads cross BSJ multiple times
+BSJ_I2	I_subreadlen_rolling	chrT2	86020	86089	86020	86090	+	GT/AG	single_exon_short	15	0	circle 70bp < read len; reads cross BSJ multiple times
+BSJ_I3	I_subreadlen_rolling	chrT2	91240	91359	91240	91360	+	GT/AG	single_exon_short	5	0	circle 120bp < read len; reads cross BSJ multiple times
+BSJ_I4	I_subreadlen_rolling	chrT2	96510	96569	96510	96570	+	GT/AG	single_exon_short	2	0	circle 60bp < read len; reads cross BSJ multiple times
+BSJ_J1_1	J_alt_backsplice	chrT2	101720	102689	101720	102690	+	GT/AG	exonic_altBS	80	0	alternative 3' back-splice site (shared acceptor)
+BSJ_J1_2	J_alt_backsplice	chrT2	101720	103499	101720	103500	+	GT/AG	exonic_altBS	25	0	alternative 3' back-splice site (shared acceptor)
+BSJ_J2_1	J_alt_backsplice	chrT2	108680	111209	108680	111210	+	GT/AG	exonic_altIntern	40	0	same BSJ, internal alternative splicing
+BSJ_J2_2	J_alt_backsplice	chrT2	108680	111209	108680	111210	+	GT/AG	exonic_altIntern	10	0	same BSJ, internal alternative splicing
+BSJ_K1	K_nested	chrT2	115610	118969	115610	118970	+	GT/AG	exonic_nested	50	0	nested/overlapping circle from shared gene
+BSJ_K2	K_nested	chrT2	116410	118139	116410	118140	+	GT/AG	exonic_nested	18	0	nested/overlapping circle from shared gene
+BSJ_K3	K_nested	chrT2	117230	117389	117230	117390	+	GT/AG	exonic_nested	5	0	nested/overlapping circle from shared gene
+BSJ_L1	L_indel_junction	chrT2	123370	124349	123370	124350	+	GT/AG	exonic_indel	30	2	2 non-templated bases inserted at junction
+BSJ_L2	L_indel_junction	chrT2	129590	130569	129590	130570	+	GT/AG	exonic_indel	9	2	2 non-templated bases inserted at junction
+BSJ_L3	L_indel_junction	chrT2	135810	136789	135810	136790	+	GT/AG	exonic_indel	3	4	4 non-templated bases inserted at junction
+BSJ_M_ig1	M_intergenic	chrT1	139080	140049	139080	140050	+	GG/GA	intergenic	25	0	circle from fully un-annotated intergenic locus
+BSJ_M_ig2	M_intergenic	chrT1	143880	144849	143880	144850	+	AC/GG	intergenic	10	0	circle from fully un-annotated intergenic locus
+BSJ_M_as1	M_antisense	chrT1	150909	148830	148830	150910	-	CT/AC	antisense	4	0	antisense circle overlapping a sense gene
+BSJ_M_as2	M_antisense	chrT1	157389	155310	155310	157390	-	CT/AC	antisense	2	0	antisense circle overlapping a sense gene

@@ -1,0 +1,6 @@
+**/__pycache__/
+*.pyc
+benchmark/results/
+*.sam
+*.bam
+.git/

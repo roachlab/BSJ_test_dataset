@@ -1,0 +1,183 @@
+# ======================================================================
+# BSJ / circRNA benchmark: CIRCexplorer2 + CIRI2 vs ground truth
+# Run:  snakemake --cores 8
+# Dry run / DAG check:  snakemake -n
+# ======================================================================
+import os
+configfile: "config.yaml"
+
+DATASET   = config["dataset"]
+GENOME    = os.path.join(DATASET, "genome.fa")
+GTF       = os.path.join(DATASET, "annotation.gtf")
+THREADS   = config["threads"]
+BASE_TOL  = config["base_tol"]
+LIBS      = config["libraries"]
+TOOLS     = config["tools"]
+CIRI2     = config["ciri2_path"]
+
+wildcard_constraints:
+    lib = "|".join(LIBS.keys())
+
+def reads(lib):
+    L = LIBS[lib]
+    if L["type"] == "pe":
+        return [os.path.join(DATASET, L["r1"]), os.path.join(DATASET, L["r2"])]
+    return [os.path.join(DATASET, L["r1"])]
+
+# ---- target list depends on which tools are enabled -------------------
+def all_eval_jsons():
+    j = []
+    if "circexplorer2" in TOOLS:
+        j += expand("results/circexplorer2/eval_{lib}_denovo.json", lib=LIBS)
+        j += expand("results/circexplorer2/eval_{lib}_known.json",  lib=LIBS)
+    if "ciri2" in TOOLS:
+        j += expand("results/ciri2/eval_{lib}.json", lib=LIBS)
+    return j
+
+PLOTS = expand("results/plots/{p}.png",
+               p=["recall_vs_coverage", "per_category_recall",
+                  "precision_recall_f1", "quantification"])
+
+rule all:
+    input:
+        "results/summary.tsv",
+        PLOTS
+
+# ======================================================================
+# Shared references
+# ======================================================================
+rule star_index:
+    input: fa=GENOME, gtf=GTF
+    output: directory("results/star_index")
+    threads: THREADS
+    shell:
+        r"""
+        mkdir -p {output}
+        GLEN=$(grep -v '>' {input.fa} | tr -d '\n' | wc -c)
+        SAIDX=$(python3 -c "import math;print(min(14,int(math.log2($GLEN)/2-1)))")
+        STAR --runMode genomeGenerate --genomeDir {output} \
+             --genomeFastaFiles {input.fa} --sjdbGTFfile {input.gtf} \
+             --genomeSAindexNbases $SAIDX --runThreadN {threads}
+        """
+
+rule gtf_to_ref:
+    input: gtf=GTF
+    output: ref="results/circexplorer2/ref.txt"
+    shell:
+        r"""
+        mkdir -p results/circexplorer2
+        gtfToGenePred -genePredExt -geneNameAsName2 {input.gtf} results/circexplorer2/tmp.genePred
+        awk 'BEGIN{{OFS="\t"}}{{print $12,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10}}' \
+            results/circexplorer2/tmp.genePred > {output.ref}
+        """
+
+rule bwa_index:
+    input: fa=GENOME
+    output: GENOME + ".bwt"
+    shell: "bwa index {input.fa}"
+
+# ======================================================================
+# CIRCexplorer2  (STAR chimeric -> parse -> annotate)
+# ======================================================================
+rule star_align:
+    input:
+        idx="results/star_index",
+        reads=lambda wc: reads(wc.lib)
+    output:
+        chim="results/circexplorer2/{lib}.Chimeric.out.junction"
+    params:
+        overhang=lambda wc: LIBS[wc.lib]["overhang"],
+        pfx="results/circexplorer2/{lib}."
+    threads: THREADS
+    shell:
+        r"""
+        STAR --runThreadN {threads} --genomeDir {input.idx} \
+             --readFilesIn {input.reads} --readFilesCommand zcat \
+             --sjdbOverhang {params.overhang} \
+             --chimSegmentMin 10 --chimJunctionOverhangMin 10 --chimOutType Junctions \
+             --chimScoreMin 1 --alignSJoverhangMin 8 \
+             --outSAMtype BAM Unsorted --outFileNamePrefix {params.pfx}
+        """
+
+rule circexplorer2_parse:
+    input: chim="results/circexplorer2/{lib}.Chimeric.out.junction"
+    output: bed="results/circexplorer2/{lib}.bsj.bed"
+    shell: "CIRCexplorer2 parse -t STAR {input.chim} -b {output.bed}"
+
+rule circexplorer2_annotate:
+    input:
+        bed="results/circexplorer2/{lib}.bsj.bed",
+        ref="results/circexplorer2/ref.txt",
+        fa=GENOME
+    output: known="results/circexplorer2/{lib}.circ_known.txt"
+    shell:
+        r"""
+        CIRCexplorer2 annotate -r {input.ref} -g {input.fa} -b {input.bed} -o {output.known} || true
+        touch {output.known}
+        """
+
+rule eval_circexplorer2_denovo:
+    input: calls="results/circexplorer2/{lib}.bsj.bed"
+    output: "results/circexplorer2/eval_{lib}_denovo.json"
+    params: tol=BASE_TOL, ds=DATASET
+    shell:
+        "python3 evaluate.py --tool circexplorer2_bed --calls {input.calls} "
+        "--dataset {params.ds} --library {wildcards.lib} --base-tol {params.tol} "
+        "--out-prefix results/circexplorer2/eval_{wildcards.lib}_denovo"
+
+rule eval_circexplorer2_known:
+    input: calls="results/circexplorer2/{lib}.circ_known.txt"
+    output: "results/circexplorer2/eval_{lib}_known.json"
+    params: tol=BASE_TOL, ds=DATASET
+    shell:
+        "python3 evaluate.py --tool circexplorer2_known --calls {input.calls} "
+        "--dataset {params.ds} --library {wildcards.lib} --base-tol {params.tol} "
+        "--out-prefix results/circexplorer2/eval_{wildcards.lib}_known"
+
+# ======================================================================
+# CIRI2  (BWA-MEM -> CIRI2.pl)
+# ======================================================================
+rule bwa_mem:
+    input:
+        fa=GENOME, bwt=GENOME + ".bwt",
+        reads=lambda wc: reads(wc.lib)
+    output: sam=temp("results/ciri2/{lib}.sam")
+    threads: THREADS
+    shell:
+        "mkdir -p results/ciri2 && "
+        "bwa mem -t {threads} -T 19 {input.fa} {input.reads} > {output.sam}"
+
+rule ciri2:
+    input:
+        sam="results/ciri2/{lib}.sam",
+        fa=GENOME, gtf=GTF
+    output: ciri="results/ciri2/{lib}.ciri"
+    params: ciri2=CIRI2
+    threads: THREADS
+    shell:
+        r"""
+        CIRI2BIN=$(command -v {params.ciri2} || echo {params.ciri2})
+        perl "$CIRI2BIN" -I {input.sam} -O {output.ciri} -F {input.fa} -A {input.gtf} -T {threads}
+        """
+
+rule eval_ciri2:
+    input: calls="results/ciri2/{lib}.ciri"
+    output: "results/ciri2/eval_{lib}.json"
+    params: tol=BASE_TOL, ds=DATASET
+    shell:
+        "python3 evaluate.py --tool ciri2 --calls {input.calls} "
+        "--dataset {params.ds} --library {wildcards.lib} --base-tol {params.tol} "
+        "--out-prefix results/ciri2/eval_{wildcards.lib}"
+
+# ======================================================================
+# Aggregate + plot
+# ======================================================================
+rule combine:
+    input: all_eval_jsons()
+    output: "results/summary.tsv"
+    shell: "python3 combine_results.py results"
+
+rule plots:
+    input: all_eval_jsons()
+    output: PLOTS
+    shell: "python3 plot_results.py --results results --out results/plots"
