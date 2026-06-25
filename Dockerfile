@@ -9,6 +9,8 @@ FROM mambaorg/micromamba:1.5.10
 # 1) conda / bioconda toolchain (incl. Snakemake 8)
 COPY --chown=$MAMBA_USER:$MAMBA_USER benchmark/environment.yml /tmp/environment.yml
 RUN micromamba install -y -n base -f /tmp/environment.yml && micromamba clean --all --yes
+# Put the base env on PATH so tools resolve in any shell (login or not).
+ENV PATH=/opt/conda/bin:$PATH
 
 # 2) CIRI2 (distributed as a Perl script, not on bioconda) -- fetched at build time.
 #    Override with: --build-arg CIRI2_URL=<url>, or mount CIRI2.pl and set $CIRI2 at run time.
@@ -28,4 +30,4 @@ COPY --chown=$MAMBA_USER:$MAMBA_USER . /work
 USER $MAMBA_USER
 
 # default: run the full benchmark (the micromamba entrypoint activates the env)
-CMD ["bash", "-lc", "cd benchmark && snakemake --cores 4"]
+CMD ["bash", "-c", "cd benchmark && snakemake --cores 4"]

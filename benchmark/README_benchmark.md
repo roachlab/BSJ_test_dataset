@@ -116,7 +116,31 @@ libraries, or which `tools` to run. To benchmark only one tool, drop the other f
 and request the targets you want (e.g. `snakemake --cores 8 results/ciri2/eval_pe_lowerr.json`).
 The shell scripts (`run_*.sh`) remain as a Snakemake-free alternative.
 
-## Docker (zero-setup, includes CIRI2)
+## Singularity / Apptainer (recommended on HPC / no-root machines)
+
+Singularity runs as **your** user (no root daemon) and auto-mounts your working directory, so
+the volume-permission problems that bite Docker on shared machines simply don't occur — outputs
+are written to `benchmark/results/` owned by you. The definition file is `bsj-bench.def` at the
+repository root; it bakes in every tool, **including CIRI2**.
+
+```bash
+# build (from the repository root, so %files can see benchmark/environment.yml)
+sudo singularity build bsj-bench.sif bsj-bench.def
+#   unprivileged alternative if fakeroot is configured:
+#   singularity build --fakeroot bsj-bench.sif bsj-bench.def
+#   or convert an existing Docker image:
+#   singularity build bsj-bench.sif docker-daemon://bsj-bench:latest
+
+# run from the repository root (CWD is auto-mounted and writable as you)
+singularity run  bsj-bench.sif                # snakemake --cores 4 in benchmark/
+singularity run  bsj-bench.sif --cores 8      # pass extra snakemake args
+singularity exec bsj-bench.sif bash -c "cd benchmark && snakemake --cores 8"
+```
+
+Use `apptainer` in place of `singularity` if that is your command. Building still needs root or
+`--fakeroot`; everything after the build is unprivileged.
+
+## Docker (alternative; zero-setup, includes CIRI2)
 
 `Dockerfile` (at the repository root) builds an image with every tool plus Snakemake 8 and
 fetches CIRI2 at build time.
@@ -130,9 +154,28 @@ docker run --rm -v "$PWD/benchmark/results:/work/benchmark/results" bsj-bench
 
 # more cores / custom command
 docker run --rm -v "$PWD/benchmark/results:/work/benchmark/results" \
-    bsj-bench bash -lc "cd benchmark && snakemake --cores 8"
+    bsj-bench bash -c "cd benchmark && snakemake --cores 8"
 ```
 
 If SourceForge is unreachable at build time, pass another CIRI2 source with
 `--build-arg CIRI2_URL=<url>`, or mount `CIRI2.pl` into the container and set `CIRI2`.
+
+### Volume permissions
+
+The container runs as the non-root `mambauser` (uid 1000). If you bind-mount a host
+`benchmark/results` that is root-owned (e.g. Docker created it under `sudo`), the in-container
+user cannot write to it and you get `permission denied` creating `results/star_index`. Pick one:
+
+```bash
+# (a) run as root (simplest when you already use sudo); outputs come back root-owned
+sudo docker run --rm --user root \
+    -v "$PWD/benchmark/results:/work/benchmark/results" bsj-bench
+sudo chown -R $USER benchmark/results          # reclaim ownership afterwards
+
+# (b) pre-create the dir for the container uid; outputs owned by you, no --user needed
+mkdir -p benchmark/results && sudo chown -R 1000:1000 benchmark/results
+sudo docker run --rm -v "$PWD/benchmark/results:/work/benchmark/results" bsj-bench
+```
+
+Or skip the mount entirely and copy results out afterwards with `docker cp`.
 

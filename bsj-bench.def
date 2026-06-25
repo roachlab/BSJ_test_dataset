@@ -1,0 +1,58 @@
+# Singularity / Apptainer image for the BSJ benchmark:
+#   STAR, BWA, samtools, CIRCexplorer2, CIRI2, Snakemake 8 (Python 3.11).
+#
+# Build (run from the repository root so %files can see benchmark/environment.yml):
+#   sudo singularity build bsj-bench.sif bsj-bench.def
+#   # or unprivileged, if fakeroot is configured on your system:
+#   singularity build --fakeroot bsj-bench.sif bsj-bench.def
+#   # or convert an already-built Docker image:
+#   singularity build bsj-bench.sif docker-daemon://bsj-bench:latest
+#
+# Run (from the repository root; your CWD is auto-mounted and writable as you):
+#   singularity run  bsj-bench.sif                 # snakemake --cores 4 in benchmark/
+#   singularity run  bsj-bench.sif --cores 8       # pass snakemake args
+#   singularity exec bsj-bench.sif bash -c "cd benchmark && snakemake --cores 8"
+#
+# (Replace `singularity` with `apptainer` if that is your command.)
+
+Bootstrap: docker
+From: mambaorg/micromamba:1.5.10
+
+%files
+    benchmark/environment.yml /opt/environment.yml
+
+%post
+    set -eu
+    export MAMBA_ROOT_PREFIX=/opt/conda
+    # conda / bioconda toolchain (incl. Snakemake 8)
+    micromamba install -y -n base -f /opt/environment.yml
+    micromamba clean --all --yes
+
+    # CIRI2 (distributed as a Perl script, not on bioconda) -- fetched at build time.
+    # To use a different source, edit CIRI2_URL below before building.
+    apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip
+    rm -rf /var/lib/apt/lists/*
+    CIRI2_URL="https://sourceforge.net/projects/ciri/files/CIRI2/CIRI_v2.0.6.zip/download"
+    curl -L "$CIRI2_URL" -o /tmp/ciri.zip
+    unzip -o /tmp/ciri.zip -d /opt/ciri
+    ln -sf "$(find /opt/ciri -name 'CIRI2.pl' | head -1)" /usr/local/bin/CIRI2.pl
+    rm -f /tmp/ciri.zip
+
+%environment
+    export MAMBA_ROOT_PREFIX=/opt/conda
+    export PATH=/opt/conda/bin:/usr/local/bin:$PATH
+    export CIRI2=/usr/local/bin/CIRI2.pl
+    export LC_ALL=C.UTF-8
+    export LANG=C.UTF-8
+
+%runscript
+    # Default action: run the Snakemake benchmark in ./benchmark (relative to your CWD).
+    cd "${SNAKE_DIR:-benchmark}"
+    if [ "$#" -eq 0 ]; then
+        exec snakemake --cores "${CORES:-4}"
+    else
+        exec snakemake "$@"
+    fi
+
+%labels
+    Description BSJ/circRNA benchmark: STAR, BWA, samtools, CIRCexplorer2, CIRI2, Snakemake 8
