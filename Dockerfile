@@ -24,6 +24,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && rm -f /tmp/ciri.zip
 ENV CIRI2=/usr/local/bin/CIRI2.pl
 
+# 2b) Rebuild STAR from source WITHOUT AVX2 so it runs on older CPUs (e.g. Ivy Bridge / E5 v2).
+#     The bioconda STAR is AVX2-compiled and SIGILLs ("illegal instruction") on such hosts.
+#     SSE4.2 runs everywhere; the perf cost is negligible on this tiny genome.
+#     For an even older CPU use --build-arg STAR_SIMD=sse.
+ARG STAR_VERSION=2.7.11b
+ARG STAR_SIMD="-msse4.2"
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential zlib1g-dev curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -L "https://github.com/alexdobin/STAR/archive/refs/tags/${STAR_VERSION}.tar.gz" -o /tmp/star.tgz \
+    && tar -xzf /tmp/star.tgz -C /tmp \
+    && make -C "/tmp/STAR-${STAR_VERSION}/source" STAR CXXFLAGS_SIMD="${STAR_SIMD}" \
+    && cp "/tmp/STAR-${STAR_VERSION}/source/STAR" /opt/conda/bin/STAR \
+    && rm -rf /tmp/star.tgz "/tmp/STAR-${STAR_VERSION}"
+
 # 3) project sources
 WORKDIR /work
 COPY --chown=$MAMBA_USER:$MAMBA_USER . /work

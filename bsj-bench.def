@@ -38,6 +38,19 @@ From: mambaorg/micromamba:1.5.10
     ln -sf "$(find /opt/ciri -name 'CIRI2.pl' | head -1)" /usr/local/bin/CIRI2.pl
     rm -f /tmp/ciri.zip
 
+    # Rebuild STAR from source WITHOUT AVX2 so it runs on older CPUs (e.g. Ivy Bridge / E5 v2).
+    # The bioconda STAR is AVX2-compiled and SIGILLs ("illegal instruction") on such hosts.
+    # SSE4.2 runs everywhere; for an even older CPU set STAR_SIMD=sse below.
+    apt-get update && apt-get install -y --no-install-recommends build-essential zlib1g-dev
+    rm -rf /var/lib/apt/lists/*
+    STAR_VERSION=2.7.11b
+    STAR_SIMD="-msse4.2"
+    curl -L "https://github.com/alexdobin/STAR/archive/refs/tags/${STAR_VERSION}.tar.gz" -o /tmp/star.tgz
+    tar -xzf /tmp/star.tgz -C /tmp
+    make -C "/tmp/STAR-${STAR_VERSION}/source" STAR CXXFLAGS_SIMD="${STAR_SIMD}"
+    cp "/tmp/STAR-${STAR_VERSION}/source/STAR" /opt/conda/bin/STAR
+    rm -rf /tmp/star.tgz "/tmp/STAR-${STAR_VERSION}"
+
 %environment
     export MAMBA_ROOT_PREFIX=/opt/conda
     export PATH=/opt/conda/bin:/usr/local/bin:$PATH

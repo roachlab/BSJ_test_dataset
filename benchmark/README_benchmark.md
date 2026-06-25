@@ -179,3 +179,32 @@ sudo docker run --rm -v "$PWD/benchmark/results:/work/benchmark/results" bsj-ben
 
 Or skip the mount entirely and copy results out afterwards with `docker cp`.
 
+
+## Troubleshooting
+
+### STAR "illegal instruction" on older CPUs (no AVX2)
+
+The bioconda STAR binary is compiled with AVX2 and crashes with SIGILL on CPUs that lack it
+(e.g. Intel Ivy Bridge / Xeon E5 v2). bwa, samtools and the callers are unaffected. The
+Singularity (`bsj-bench.def`) and Docker (`Dockerfile`) recipes now rebuild STAR from source
+with `-msse4.2`, which runs on those CPUs (negligible speed cost on this small genome) — just
+rebuild the image:
+
+```bash
+singularity build bsj-bench.sif bsj-bench.def        # or: docker build -t bsj-bench .
+# even older CPU? drop to plain SSE:
+#   docker build --build-arg STAR_SIMD=sse -t bsj-bench .
+#   (Singularity: change STAR_SIMD in bsj-bench.def)
+```
+
+For a **bare conda env** (no container), replace the AVX2 STAR in place:
+
+```bash
+conda activate bsj-bench
+conda install -y -c conda-forge make gxx_linux-64 zlib    # build tools, if missing
+VER=2.7.11b
+curl -L "https://github.com/alexdobin/STAR/archive/refs/tags/${VER}.tar.gz" | tar xz
+make -C "STAR-${VER}/source" STAR CXXFLAGS_SIMD="-msse4.2"
+cp "STAR-${VER}/source/STAR" "$CONDA_PREFIX/bin/STAR"     # overwrite the AVX2 build
+STAR --version                                            # sanity check
+```
