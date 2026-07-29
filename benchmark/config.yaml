@@ -8,22 +8,44 @@ tools:
   - circexplorer2
   - ciri2
 
+# Full factorial: {pe, se} x {150, 100} bp x {lowerr, higherr} = 8 libraries.
+# Read length and library layout vary independently, so a PE-vs-SE difference can be
+# attributed to the mate-pair signal rather than to read length. Drop entries here to
+# benchmark a subset (e.g. keep only pe150_*/se150_* to hold read length fixed).
 libraries:
-  pe_lowerr:
+  pe150_lowerr:
     type: pe
-    r1: reads_pe_lowerr_R1.fastq.gz
-    r2: reads_pe_lowerr_R2.fastq.gz
+    r1: reads_pe150_lowerr_R1.fastq.gz
+    r2: reads_pe150_lowerr_R2.fastq.gz
     overhang: 149
-  pe_higherr:
+  pe150_higherr:
     type: pe
-    r1: reads_pe_higherr_R1.fastq.gz
-    r2: reads_pe_higherr_R2.fastq.gz
+    r1: reads_pe150_higherr_R1.fastq.gz
+    r2: reads_pe150_higherr_R2.fastq.gz
     overhang: 149
-  se_lowerr:
-    type: se
-    r1: reads_se_lowerr.fastq.gz
+  pe100_lowerr:
+    type: pe
+    r1: reads_pe100_lowerr_R1.fastq.gz
+    r2: reads_pe100_lowerr_R2.fastq.gz
     overhang: 99
-  se_higherr:
+  pe100_higherr:
+    type: pe
+    r1: reads_pe100_higherr_R1.fastq.gz
+    r2: reads_pe100_higherr_R2.fastq.gz
+    overhang: 99
+  se150_lowerr:
     type: se
-    r1: reads_se_higherr.fastq.gz
+    r1: reads_se150_lowerr.fastq.gz
+    overhang: 149
+  se150_higherr:
+    type: se
+    r1: reads_se150_higherr.fastq.gz
+    overhang: 149
+  se100_lowerr:
+    type: se
+    r1: reads_se100_lowerr.fastq.gz
+    overhang: 99
+  se100_higherr:
+    type: se
+    r1: reads_se100_higherr.fastq.gz
     overhang: 99

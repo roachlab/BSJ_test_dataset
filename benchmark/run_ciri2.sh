@@ -30,8 +30,12 @@ run_lib () {
   rm -f "$OUT/$lib.sam"   # SAMs are large; drop after parsing
 }
 
-run_lib pe_lowerr  "$DATASET/reads_pe_lowerr_R1.fastq.gz"  "$DATASET/reads_pe_lowerr_R2.fastq.gz"
-run_lib pe_higherr "$DATASET/reads_pe_higherr_R1.fastq.gz" "$DATASET/reads_pe_higherr_R2.fastq.gz"
-run_lib se_lowerr  "$DATASET/reads_se_lowerr.fastq.gz"
-run_lib se_higherr "$DATASET/reads_se_higherr.fastq.gz"
+run_lib pe150_lowerr  "$DATASET/reads_pe150_lowerr_R1.fastq.gz"  "$DATASET/reads_pe150_lowerr_R2.fastq.gz"
+run_lib pe150_higherr "$DATASET/reads_pe150_higherr_R1.fastq.gz" "$DATASET/reads_pe150_higherr_R2.fastq.gz"
+run_lib pe100_lowerr  "$DATASET/reads_pe100_lowerr_R1.fastq.gz"  "$DATASET/reads_pe100_lowerr_R2.fastq.gz"
+run_lib pe100_higherr "$DATASET/reads_pe100_higherr_R1.fastq.gz" "$DATASET/reads_pe100_higherr_R2.fastq.gz"
+run_lib se150_lowerr  "$DATASET/reads_se150_lowerr.fastq.gz"
+run_lib se150_higherr "$DATASET/reads_se150_higherr.fastq.gz"
+run_lib se100_lowerr  "$DATASET/reads_se100_lowerr.fastq.gz"
+run_lib se100_higherr "$DATASET/reads_se100_higherr.fastq.gz"
 echo "CIRI2 done -> $OUT"

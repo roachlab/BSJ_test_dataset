@@ -40,18 +40,33 @@ check(motif_mismatch == 0, f"all motifs match genome.fa (mismatch={motif_mismatc
 canon = sum(1 for r in bsj if r[ix["splice_motif"]] == "GT/AG")
 check(canon >= 30, f"canonical GT/AG circles = {canon}")
 
-# 3. junction read counts per BSJ == expected (pe_lowerr library)
+# 3. junction read counts per BSJ == expected, in EVERY library
+PE_LIBS = [("pe150_lowerr", 150), ("pe150_higherr", 150),
+           ("pe100_lowerr", 100), ("pe100_higherr", 100)]
+SE_LIBS = [("se150_lowerr", 150), ("se150_higherr", 150),
+           ("se100_lowerr", 100), ("se100_higherr", 100)]
+ALL_LIBS = [t for t, _ in PE_LIBS + SE_LIBS]
+
 exp = {r[ix["bsj_id"]]: int(r[ix["expected_junction_reads"]]) for r in bsj}
-cnt = collections.Counter()
+cnt = collections.defaultdict(collections.Counter)
+lib_totals = collections.Counter()
 for l in open(os.path.join(D, "read_origin.tsv")):
     p = l.rstrip("\n").split("\t")
     if p[0] == "read_id": continue
     rid, lib, origin, rclass = p[0], p[1], p[2], p[3]
-    if lib == "pe_lowerr" and rclass == "circle_junction":
-        cnt[origin] += 1
-mism = [(k, exp[k], cnt.get(k, 0)) for k in exp if cnt.get(k, 0) != exp[k]]
-check(not mism, f"junction read counts match expected (mismatches={len(mism)})")
-if mism: print("  e.g.", mism[:5])
+    lib_totals[lib] += 1
+    if rclass == "circle_junction":
+        cnt[lib][origin] += 1
+bad = []
+for lib in ALL_LIBS:
+    bad += [(lib, k, exp[k], cnt[lib].get(k, 0)) for k in exp if cnt[lib].get(k, 0) != exp[k]]
+check(not bad, f"junction read counts match expected in all 8 libraries (mismatches={len(bad)})")
+if bad: print("  e.g.", bad[:5])
+
+check(set(lib_totals) == set(ALL_LIBS),
+      f"read_origin.tsv covers exactly the 8 libraries ({sorted(lib_totals)})")
+check(len(set(lib_totals.values())) == 1,
+      f"all libraries have equal read counts ({dict(lib_totals)})")
 
 # 4. FASTQ integrity
 def fq_stats(path):
@@ -60,12 +75,12 @@ def fq_stats(path):
         for i, ln in enumerate(fh):
             if i % 4 == 1: lens.add(len(ln.strip())); n += 1
     return n, lens
-for lib, rl in [("pe_lowerr", 150), ("pe_higherr", 150)]:
+for lib, rl in PE_LIBS:
     n1, l1 = fq_stats(os.path.join(D, f"reads_{lib}_R1.fastq.gz"))
     n2, l2 = fq_stats(os.path.join(D, f"reads_{lib}_R2.fastq.gz"))
     check(n1 == n2, f"{lib}: R1==R2 read count ({n1}=={n2})")
     check(l1 == {rl} and l2 == {rl}, f"{lib}: all reads {rl}bp ({l1|l2})")
-for lib, rl in [("se_lowerr", 100), ("se_higherr", 100)]:
+for lib, rl in SE_LIBS:
     n, l = fq_stats(os.path.join(D, f"reads_{lib}.fastq.gz"))
     check(l == {rl}, f"{lib}: {n} reads all {rl}bp ({l})")
 

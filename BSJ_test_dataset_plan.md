@@ -58,13 +58,16 @@ Each category gets **3–5 independent loci**, with coverage spread across order
 | G — Non-canonical motif | 3 | Motif filters (keep vs drop) | Back-splice flanked by non-GT/AG (e.g. AT/AC) | ~30, 8, 2 |
 | H — Fuzzy breakpoint (microhomology) | 4 | Breakpoint ambiguity | Donor/acceptor share 2–6 identical bases, so the exact breakpoint is shiftable; truth records a tolerance window | ~60, 20, 6, 2 |
 | I — Sub-read-length circle (rolling) | 4 | Reads crossing the BSJ ≥2× | Circle shorter than the read; reads tile the loop and contain tandem copies | ~50, 15, 5, 2 |
-| J — Alternative back-splicing | 5 (2 genes) | Isoform resolution / read attribution | Same gene → multiple circles sharing one breakpoint with a different partner, plus internal alternative splicing under one BSJ | ~80/40, 25/10, 4 |
+| J — Alternative back-splicing | 4 (2 genes) | Isoform resolution / read attribution | Same gene → multiple circles sharing one breakpoint with a different partner, plus internal alternative splicing under one BSJ | ~80, 25 (J1); ~40, 10 (J2) |
 | K — Nested / overlapping circles | 3 (1 gene) | Breakpoint disambiguation | Two circles from one gene whose coordinates nest inside each other | ~50, 18, 5 |
 | L — Indel / non-templated bases at junction | 3 | Exact-vs-fuzzy calling | A few inserted/deleted bases exactly at the back-splice | ~30, 9, 3 |
 | M — Intergenic & antisense circles | 4 | No annotation / strand assignment | 2 circles from fully un-annotated intergenic loci; 2 antisense circles overlapping a sense gene | ~25, 10, 4, 2 |
 
-**≈42 true BSJs total.** The deliberately low-coverage tail (down to 1–2 reads) probes
+**49 true BSJs total.** The deliberately low-coverage tail (down to 1–2 reads) probes
 single-read detection limits; the high-coverage members anchor quantification.
+
+> Note: the two category-J2 rows (`BSJ_J2_1`, `BSJ_J2_2`) share identical breakpoints — they are
+> two body isoforms of one BSJ — so a coordinate-based matcher will only ever match one of them.
 
 ---
 
@@ -94,7 +97,7 @@ the false BSJ from the same locus — it can't just blocklist the gene.
 | DEC-10 — SNP/variant near junction | 3 | A mismatch a few bp from a real breakpoint that must not be misread as a junction shift or a spurious second isoform (paired with category-H/J loci). |
 | DEC-11 — High-expression linear gene | 2 | Very high linear coverage to swamp the background, so low-coverage circles must still be found (dynamic-range stress). |
 
-**≈39 decoy loci total.** DEC-7 and DEC-8 each generate *both* truth-positive forward-SJ reads
+**39 decoy loci total.** DEC-7 and DEC-8 each generate *both* truth-positive forward-SJ reads
 (annotated, expected) and truth-negative pseudo-BSJ reads (expected: no circle call) from the
 same locus, recorded separately in `read_origin.tsv`.
 
@@ -115,14 +118,17 @@ reads and exact per-read ground truth.
 
 **Variables swept (same underlying truth across all):**
 
-- **Library type:** a **PE** set (2×150) *and* an **SE** set (100 bp). PE adds the inverted
-  mate-pair orientation signal; SE relies on junction-spanning reads only.
+- **Library type:** **PE** *and* **SE**. PE adds the inverted mate-pair orientation signal;
+  SE relies on junction-spanning reads only.
+- **Read length:** **150 bp** *and* **100 bp**, crossed with library type rather than tied to
+  it. Read length drives the anchor sequence available either side of a junction, so varying
+  it alongside paired-ness would confound the two; the full factorial keeps them separable.
 - **Error model:** a **low-error** replicate (~0.2% substitution) and a **high-error**
   replicate (~2%, optional indels) to stress junction mismatch tolerance.
 - **Coverage:** highly variable per BSJ per §3, down to 1–2 reads.
 
-Output sets, e.g.: `reads_pe_lowerr.fastq.gz`, `reads_pe_higherr.fastq.gz`,
-`reads_se_lowerr.fastq.gz`, `reads_se_higherr.fastq.gz` (each as R1/R2 for PE).
+Output sets: `reads_{pe,se}{150,100}_{lowerr,higherr}.fastq.gz` — the full
+{PE, SE} × {150, 100} × {low, high error} factorial, 8 libraries (each as R1/R2 for PE).
 
 ---
 
@@ -154,11 +160,12 @@ With replicated cases, metrics are reported **per category and overall**:
   (A–M) and as a coverage curve. The tolerance window is **required** for category H/L, whose
   truth rows carry an explicit allowed breakpoint range.
 - **Specificity / precision** = decoy loci correctly *not* called, and matched true calls vs
-  off-target calls — per decoy category (DEC-1…8). For DEC-7/DEC-8, scored as a **joint**
+  off-target calls — per decoy category (DEC-1…11). For DEC-7/DEC-8, scored as a **joint**
   test: the forward SJs must be retained *and* the pseudo-BSJ rejected at the same locus.
 - **Quantification** = correlation of detected junction reads vs `expected_junction_reads`.
 - **Sensitivity floor** = lowest coverage / shortest anchor still recovered, swept across the
-  PE/SE and low/high-error replicates.
+  PE/SE, 150/100 bp and low/high-error replicates. Because the three axes are fully crossed,
+  the read-length effect and the mate-pair effect can be read off independently.
 
 ---
 

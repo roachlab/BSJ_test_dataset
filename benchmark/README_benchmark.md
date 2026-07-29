@@ -1,8 +1,13 @@
 # BSJ pipeline benchmark: CIRCexplorer2 + CIRI2 (and your own pipeline)
 
-Runs CIRCexplorer2 and CIRI2 on the four read libraries in `../dataset/`, scores each output
+Runs CIRCexplorer2 and CIRI2 on the eight read libraries in `../dataset/`, scores each output
 against the ground truth, and produces a comparison table. The evaluator (`evaluate.py`) is
 tool-agnostic, so you can score your own pipeline the same way.
+
+The eight libraries are the full **{PE, SE} x {150, 100} bp x {low, high error}** factorial, so
+read length and library layout can be compared independently — hold two axes fixed to isolate
+the third (e.g. `pe150_lowerr` vs `se150_lowerr` for paired-ness, `pe150_lowerr` vs
+`pe100_lowerr` for read length). Trim the `libraries` block in `config.yaml` to run a subset.
 
 ## Layout
 
@@ -47,8 +52,8 @@ Emit a BED6 per library — `chrom  start(0-based)  end  name  junction_reads  s
 `start`/`end` are the circle's left/right genomic breakpoints, then:
 
 ```bash
-python3 evaluate.py --tool bed --calls mypipe_pe_lowerr.bed \
-    --dataset ../dataset --library pe_lowerr --out-prefix results/mypipeline/eval_pe_lowerr
+python3 evaluate.py --tool bed --calls mypipe_pe150_lowerr.bed \
+    --dataset ../dataset --library pe150_lowerr --out-prefix results/mypipeline/eval_pe150_lowerr
 python3 combine_results.py results
 ```
 
@@ -113,7 +118,7 @@ Outputs land in `results/` exactly as with the shell scripts:
 
 Edit `config.yaml` to change threads, the breakpoint tolerance, the CIRI2 path, the read
 libraries, or which `tools` to run. To benchmark only one tool, drop the other from `tools:`
-and request the targets you want (e.g. `snakemake --cores 8 results/ciri2/eval_pe_lowerr.json`).
+and request the targets you want (e.g. `snakemake --cores 8 results/ciri2/eval_pe150_lowerr.json`).
 The shell scripts (`run_*.sh`) remain as a Snakemake-free alternative.
 
 ## Singularity / Apptainer (recommended on HPC / no-root machines)
@@ -207,4 +212,22 @@ curl -L "https://github.com/alexdobin/STAR/archive/refs/tags/${VER}.tar.gz" | ta
 make -C "STAR-${VER}/source" STAR CXXFLAGS_SIMD="-msse4.2"
 cp "STAR-${VER}/source/STAR" "$CONDA_PREFIX/bin/STAR"     # overwrite the AVX2 build
 STAR --version                                            # sanity check
+```
+
+### `std::bad_alloc` during `singularity build`
+
+This is an out-of-memory / out-of-disk error in the build temp area, not a recipe bug.
+Singularity's temp and cache default to `/tmp`, which is often small or RAM-backed (tmpfs);
+packing the squashfs or running the conda solve then exhausts it. Fixes:
+
+```bash
+# (a) give the build a roomy, disk-backed temp + cache, then rebuild
+export APPTAINER_TMPDIR=/data/$USER/tmp  APPTAINER_CACHEDIR=/data/$USER/cache
+#     older Singularity: SINGULARITY_TMPDIR / SINGULARITY_CACHEDIR
+mkdir -p "$APPTAINER_TMPDIR" "$APPTAINER_CACHEDIR"
+singularity build bsj-bench.sif bsj-bench.def
+
+# (b) low on RAM? build with Docker (heavy work there) and just convert to SIF
+sudo docker build -t bsj-bench .
+sudo singularity build bsj-bench.sif docker-daemon://bsj-bench:latest
 ```

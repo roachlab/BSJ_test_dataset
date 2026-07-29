@@ -13,8 +13,8 @@ Supported --tool parsers:
   bed                  generic BED6 (chrom,start,end,name,reads,strand) -- use for YOUR pipeline
 
 Usage:
-  evaluate.py --tool ciri2 --calls out.ciri --dataset ../dataset --library pe_lowerr \
-              --out-prefix results/ciri2_pe_lowerr
+  evaluate.py --tool ciri2 --calls out.ciri --dataset ../dataset --library pe150_lowerr \
+              --out-prefix results/ciri2_pe150_lowerr
 """
 import argparse, json, os, math, sys
 

@@ -5,7 +5,7 @@ Tiny BSJ (back-splice junction / circRNA) test-dataset generator.
 Produces a small, fully-labelled dataset for validating circRNA detection pipelines:
   - genome.fa            ~1.5 Mbp, 3 contigs
   - annotation.gtf       gene models (with deliberate omissions)
-  - reads_*.fastq.gz     PE 2x150 + SE 100, low- and high-error
+  - reads_*.fastq.gz     {PE, SE} x {150, 100} bp x {low, high} error = 8 libraries
   - truth_bsj.tsv/.bed   true back-splice junctions
   - truth_bsj_sequences.fa
   - truth_negatives.tsv  decoy loci (expected: no circle call)
@@ -267,7 +267,10 @@ for n, (cov, mh) in enumerate(zip(H_cov, H_mh), 1):
 
 # ---- I: sub-read-length / rolling-circle (4) ----
 I_cov = [50, 15, 5, 2]
-I_len = [90, 70, 120, 60]   # all shorter than/near a 150 or 100bp read
+# I1/I2/I4 (90/70/60 bp) are shorter than every read length, so they always roll.
+# I3 (120 bp) sits between the two read lengths on purpose: it rolls in the 150 bp
+# libraries but not in the 100 bp ones, which makes read-length dependence measurable.
+I_len = [90, 70, 120, 60]
 for n, (cov, L) in enumerate(zip(I_cov, I_len), 1):
     g = make_gene(f"geneI{n}", "chrT2", "+", [L, 150], [600])
     annotated_genes.append(g)
@@ -276,7 +279,7 @@ for n, (cov, L) in enumerate(zip(I_cov, I_len), 1):
             "single_exon_short", cov, note=f"circle {L}bp < read len; reads cross BSJ multiple times")
     add_circle_job(f"BSJ_I{n}", seq, cov, 0, "I rolling-circle")
 
-# ---- J: alternative back-splicing (5 circles across 2 genes) ----
+# ---- J: alternative back-splicing (4 circles across 2 genes) ----
 # gene J1: two circles share the acceptor (exon0 start) but differ in donor (exon1 vs exon2)
 gj1 = make_gene("geneJ1", "chrT2", "+", [200, 170, 160, 180], [600, 650, 600])
 annotated_genes.append(gj1)
@@ -508,20 +511,26 @@ def apply_errors(seq, sub_rate, indel_rate, want_len):
         out.append(rng.choice(BASES))
     return "".join(out[:want_len])
 
+# (tag, is_paired, read_len, sub_rate, indel_rate)
+# Full factorial: {PE, SE} x {150, 100} x {low, high error}. Read length is varied
+# independently of library layout so an SE-vs-PE difference can be attributed to the
+# missing mate-pair signal rather than to the shorter read (and vice versa).
 LIBS = [
-    ("pe_lowerr",  True,  0.002, 0.000),
-    ("pe_higherr", True,  0.020, 0.003),
-    ("se_lowerr",  False, 0.002, 0.000),
-    ("se_higherr", False, 0.020, 0.003),
+    ("pe150_lowerr",  True,  150, 0.002, 0.000),
+    ("pe150_higherr", True,  150, 0.020, 0.003),
+    ("pe100_lowerr",  True,  100, 0.002, 0.000),
+    ("pe100_higherr", True,  100, 0.020, 0.003),
+    ("se150_lowerr",  False, 150, 0.002, 0.000),
+    ("se150_higherr", False, 150, 0.020, 0.003),
+    ("se100_lowerr",  False, 100, 0.002, 0.000),
+    ("se100_higherr", False, 100, 0.020, 0.003),
 ]
-RLEN = {"pe": 150, "se": 100}
 FRAG = 330
 
 origin_rows = []   # (read_id, library, origin, kind, spans, role, note)
 
 def emit_fastq():
-    for libtag, is_pe, sub, indel in LIBS:
-        rlen = RLEN["pe" if is_pe else "se"]
+    for libtag, is_pe, rlen, sub, indel in LIBS:
         if is_pe:
             f1 = gzip.open(os.path.join(OUT, f"reads_{libtag}_R1.fastq.gz"), "wt")
             f2 = gzip.open(os.path.join(OUT, f"reads_{libtag}_R2.fastq.gz"), "wt")

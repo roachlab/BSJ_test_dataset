@@ -51,8 +51,12 @@ run_lib () {
   fi
 }
 
-run_lib pe_lowerr  149 "$DATASET/reads_pe_lowerr_R1.fastq.gz"  "$DATASET/reads_pe_lowerr_R2.fastq.gz"
-run_lib pe_higherr 149 "$DATASET/reads_pe_higherr_R1.fastq.gz" "$DATASET/reads_pe_higherr_R2.fastq.gz"
-run_lib se_lowerr   99 "$DATASET/reads_se_lowerr.fastq.gz"
-run_lib se_higherr  99 "$DATASET/reads_se_higherr.fastq.gz"
+run_lib pe150_lowerr  149 "$DATASET/reads_pe150_lowerr_R1.fastq.gz"  "$DATASET/reads_pe150_lowerr_R2.fastq.gz"
+run_lib pe150_higherr 149 "$DATASET/reads_pe150_higherr_R1.fastq.gz" "$DATASET/reads_pe150_higherr_R2.fastq.gz"
+run_lib pe100_lowerr   99 "$DATASET/reads_pe100_lowerr_R1.fastq.gz"  "$DATASET/reads_pe100_lowerr_R2.fastq.gz"
+run_lib pe100_higherr  99 "$DATASET/reads_pe100_higherr_R1.fastq.gz" "$DATASET/reads_pe100_higherr_R2.fastq.gz"
+run_lib se150_lowerr  149 "$DATASET/reads_se150_lowerr.fastq.gz"
+run_lib se150_higherr 149 "$DATASET/reads_se150_higherr.fastq.gz"
+run_lib se100_lowerr   99 "$DATASET/reads_se100_lowerr.fastq.gz"
+run_lib se100_higherr  99 "$DATASET/reads_se100_higherr.fastq.gz"
 echo "CIRCexplorer2 done -> $OUT"
