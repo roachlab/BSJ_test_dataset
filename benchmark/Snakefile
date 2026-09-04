@@ -14,7 +14,7 @@ BASE_TOL  = config["base_tol"]
 LIBS      = config["libraries"]
 TOOLS     = config["tools"]
 CIRI2     = config["ciri2_path"]
-BSJ_FINDER = config.get("bsj_finder_dir", "..")   # bsj_finder repo root (working dir = benchmark/)
+BSJ_FINDER = config.get("bsj_finder_dir", "../bsj_finder")   # bsj_finder repo root (working dir = benchmark/)
 MERGE_TOL  = config.get("bsj_finder_merge_tol", 5)
 
 wildcard_constraints:
