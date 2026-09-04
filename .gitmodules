@@ -1,0 +1,3 @@
+[submodule "bsj_finder"]
+	path = bsj_finder
+	url = https://github.com/roachlab/bsj_finder.git
