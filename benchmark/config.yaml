@@ -4,9 +4,15 @@ threads: 4
 base_tol: 2                    # baseline breakpoint tolerance added to per-junction tolerance
 ciri2_path: "CIRI2.pl"         # name on PATH, or absolute path to CIRI2.pl
 
+# bsj_finder (the pipeline being benchmarked). It is a Snakemake pipeline living one
+# level up from this submodule; the benchmark drives it to its detection target only.
+bsj_finder_dir: ".."           # bsj_finder repo root, relative to this benchmark/ dir
+bsj_finder_merge_tol: 12        # cluster per-read breakpoints within this many bp into one call
+
 tools:
   - circexplorer2
   - ciri2
+  - bsj_finder
 
 # Full factorial: {pe, se} x {150, 100} bp x {lowerr, higherr} = 8 libraries.
 # Read length and library layout vary independently, so a PE-vs-SE difference can be

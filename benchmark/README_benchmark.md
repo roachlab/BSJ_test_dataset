@@ -18,6 +18,8 @@ the third (e.g. `pe150_lowerr` vs `se150_lowerr` for paired-ness, `pe150_lowerr`
 | `run_ciri2.sh` | BWA-MEM -> CIRI2 -> evaluate, per library. |
 | `run_benchmark.sh` | Run both tools, then summarise. |
 | `combine_results.py` | Merge all `eval_*.json` into one table + `results/summary.tsv`. |
+| `run_bsj_finder.sh` | Drive the real **bsj_finder** pipeline (detection only) per library -> convert -> evaluate. |
+| `bsj_finder_to_bed.py` | Convert bsj_finder's per-read `bsj_cor.tsv.gz` into an aggregated BED6 for scoring. |
 
 ## Environment
 
@@ -56,6 +58,41 @@ python3 evaluate.py --tool bed --calls mypipe_pe150_lowerr.bed \
     --dataset ../dataset --library pe150_lowerr --out-prefix results/mypipeline/eval_pe150_lowerr
 python3 combine_results.py results
 ```
+
+## Benchmarking bsj_finder
+
+bsj_finder is the pipeline this dataset was built to validate, so it is wired in as a
+first-class tool. It is itself a Snakemake pipeline living one level up from this submodule
+(the `BSJ_test_dataset` repo is a submodule of `bsj_finder`). The benchmark drives it to its
+**detection target only** (`bsj_results/<lib>.bsj_cor.tsv.gz`), skipping the mmseqs2 dedup and
+bcftools polish steps, which refine circle *sequences* and do not change breakpoint
+*coordinates* — so they cannot affect recall/precision/specificity.
+
+bsj_finder emits **one row per read** that spans a back-splice, with genomic breakpoints
+(`s_start`/`s_end`) already ordered low->high and on the same 0-based convention as
+`truth_bsj.tsv`. `bsj_finder_to_bed.py` clusters reads whose breakpoints agree within
+`--merge-tol` bp (default 5) into one junction, sums the supporting reads (→ the
+quantification metric), and writes a BED6 that `evaluate.py --tool bed` scores like any other
+tool.
+
+```bash
+# needs snakemake + bsj_finder's own deps (--use-conda builds the per-rule envs)
+cd benchmark
+BSJ_FINDER=.. THREADS=8 ./run_bsj_finder.sh ../dataset results/bsj_finder
+python3 combine_results.py results
+```
+
+Or via Snakemake (bsj_finder is in the `tools:` list in `config.yaml`):
+
+```bash
+snakemake --cores 8 results/bsj_finder/eval_pe150_lowerr.json   # one library
+snakemake --cores 8                                             # everything, all tools
+```
+
+Settings in `config.yaml`: `bsj_finder_dir` (repo root, relative to `benchmark/`; default `..`)
+and `bsj_finder_merge_tol` (breakpoint clustering tolerance). Coverage note: category **J2**
+shares identical breakpoints with **J1**, so a coordinate matcher can match at most one of the
+two — 48/49 is the ceiling for any coordinate-based caller, bsj_finder included.
 
 ## What gets matched
 
@@ -114,7 +151,7 @@ snakemake --cores 8               # run the whole benchmark
 ```
 
 Outputs land in `results/` exactly as with the shell scripts:
-`results/circexplorer2/`, `results/ciri2/`, `results/summary.tsv`, `results/plots/*.png`.
+`results/circexplorer2/`, `results/ciri2/`, `results/bsj_finder/`, `results/summary.tsv`, `results/plots/*.png`.
 
 Edit `config.yaml` to change threads, the breakpoint tolerance, the CIRI2 path, the read
 libraries, or which `tools` to run. To benchmark only one tool, drop the other from `tools:`

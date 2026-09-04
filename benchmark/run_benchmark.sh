@@ -7,5 +7,6 @@ set -euo pipefail
 DATASET="${1:-../dataset}"
 bash run_circexplorer2.sh "$DATASET" results/circexplorer2 || echo "CIRCexplorer2 step failed/skipped"
 bash run_ciri2.sh        "$DATASET" results/ciri2        || echo "CIRI2 step failed/skipped"
+bash run_bsj_finder.sh   "$DATASET" results/bsj_finder   || echo "bsj_finder step failed/skipped"
 echo; echo "================ BENCHMARK SUMMARY ================"
 python3 combine_results.py results

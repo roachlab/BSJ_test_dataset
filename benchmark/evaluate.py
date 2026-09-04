@@ -63,6 +63,33 @@ PARSERS = {
 }
 
 # ---------------------------------------------------------------- truth
+def load_genome(dataset):
+    path = os.path.join(dataset, "genome.fa")
+    g = {}; name = None
+    try:
+        with open(path) as fh:
+            for ln in fh:
+                if ln.startswith(">"):
+                    name = ln[1:].split()[0]; g[name] = []
+                else:
+                    g[name].append(ln.strip())
+    except FileNotFoundError:
+        return {}
+    return {k: "".join(v) for k, v in g.items()}
+
+def left_align(chrom, left, right, genome):
+    """Canonicalize a back-splice breakpoint pair by shifting it as far left as the
+    microhomology allows. (left,right) and (left-1,right-1) describe the same junction
+    when genome[left-1]==genome[right]; applied identically to truth and calls, this makes
+    matching independent of which end of a microhomology a tool reports. left/right are
+    0-based, inclusive breakpoint positions (left<right)."""
+    s = genome.get(chrom)
+    if not s:
+        return left, right
+    while left > 0 and right < len(s) and s[left - 1] == s[right]:
+        left -= 1; right -= 1
+    return left, right
+
 def load_truth(dataset):
     bsj = []
     with open(os.path.join(dataset, "truth_bsj.tsv")) as fh:
@@ -137,6 +164,9 @@ def spearman(x, y):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tool", required=True, choices=list(PARSERS))
+    ap.add_argument("--tool-name", default=None,
+                    help="name to report in output/JSON (default: the --tool parser name). "
+                         "Use e.g. --tool bed --tool-name bsj_finder to label your pipeline.")
     ap.add_argument("--calls", required=True)
     ap.add_argument("--dataset", default="../dataset")
     ap.add_argument("--library", default="NA")
@@ -145,8 +175,20 @@ def main():
     ap.add_argument("--out-prefix", default=None)
     a = ap.parse_args()
 
+    tool_name = a.tool_name or a.tool
     calls = PARSERS[a.tool](a.calls) if os.path.exists(a.calls) else []
     bsj, negs = load_truth(a.dataset)
+
+    # Microhomology-aware normalization: left-align both truth and call breakpoints to a
+    # canonical position, so a call reported at the other end of a microhomology run still
+    # matches (see left_align). Convention-independent and fair across tools.
+    genome = load_genome(a.dataset)
+    if genome:
+        for b in bsj:
+            b["left"], b["right"] = left_align(b["chrom"], b["left"], b["right"], genome)
+        calls = [(chrom, *left_align(chrom, l, r, genome), reads)
+                 for (chrom, l, r, reads) in calls]
+
     truth_found, call_status = match(calls, bsj, negs, a.base_tol)
 
     P = len(bsj); Nn = len(negs)
@@ -186,7 +228,7 @@ def main():
             qx.append(b["expected"]); qy.append(v)
     pear, spear = _pearson(qx, qy), spearman(qx, qy)
 
-    res = dict(tool=a.tool, library=a.library, calls=len(calls),
+    res = dict(tool=tool_name, library=a.library, calls=len(calls),
                P=P, N=Nn, TP=TP, FN=FN, FP=FP, FP_on_decoy=FP_decoy, FP_offtarget=FP_off, TN=TN,
                precision=precision, recall=recall, f1=f1, specificity=specificity,
                accuracy=accuracy, fdr=fdr,
@@ -197,7 +239,7 @@ def main():
                decoys_called=sorted(decoys_hit))
 
     def fmt(x): return "nan" if x != x else f"{x:.3f}"
-    print(f"\n=== {a.tool}  [{a.library}] ===")
+    print(f"\n=== {tool_name}  [{a.library}] ===")
     print(f"calls={len(calls)}  P(true)={P}  N(decoy)={Nn}")
     print(f"TP={TP}  FN={FN}  FP={FP} (decoy={FP_decoy}, off-target={FP_off})  TN={TN}")
     print(f"precision={fmt(precision)}  recall={fmt(recall)}  F1={fmt(f1)}")

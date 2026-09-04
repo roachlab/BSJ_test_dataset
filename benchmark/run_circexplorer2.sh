@@ -24,7 +24,7 @@ SAIDX=$(python3 -c "import math;print(min(14,int(math.log2($GLEN)/2-1)))")
 if [ ! -e "$OUT/star_index/SAindex" ]; then
   mkdir -p "$OUT/star_index"
   STAR --runMode genomeGenerate --genomeDir "$OUT/star_index" \
-       --genomeFastaFiles "$GENOME" --sjdbGTFfile "$GTF" \
+       --genomeFastaFiles "$GENOME" \
        --genomeSAindexNbases "$SAIDX" --runThreadN "$THREADS"
 fi
 
@@ -36,7 +36,6 @@ run_lib () {
   echo ">>> CIRCexplorer2 :: $lib"
   STAR --runThreadN "$THREADS" --genomeDir "$OUT/star_index" \
        --readFilesIn "${reads[@]}" --readFilesCommand zcat \
-       --sjdbOverhang "$overhang" \
        --chimSegmentMin 10 --chimJunctionOverhangMin 10 --chimOutType Junctions \
        --chimScoreMin 1 --alignSJoverhangMin 8 \
        --outSAMtype BAM Unsorted --outFileNamePrefix "$pfx"

@@ -68,7 +68,7 @@ breakpoint_tolerance_bp, notes`
 
 ## Test-case categories
 
-**49 true BSJs** (`truth_bsj.tsv`, column `category`) and **39 decoy loci**
+**48 true back-splice junctions** (`truth_bsj.tsv`, column `category`) and **39 decoy loci**
 (`truth_negatives.tsv`). Instances per category:
 
 Positives — A canonical multi-exon (5), B single-exon (4), C un-annotated exon (4),
@@ -100,8 +100,9 @@ must be rejected).
 
 1. **Sensitivity** = detected / total true BSJs, breakpoints within `breakpoint_tolerance_bp`
    (>=0). Report per category and as a coverage curve using `expected_junction_reads`.
-   Note `BSJ_J2_1` / `BSJ_J2_2` share identical breakpoints (two body isoforms of one BSJ),
-   so a coordinate-based matcher can only ever recover one of the pair.
+   Note: the former `BSJ_J2_1` / `BSJ_J2_2` (two internal-splicing isoforms of one
+   back-splice) share identical breakpoints and are collapsed into a single junction
+   `BSJ_J2` — this benchmark scores back-splice-junction discovery, not isoform resolution.
 2. **Specificity / precision** = decoy loci correctly not called. For DEC7/DEC8, score jointly:
    forward SJ retained AND pseudo-BSJ rejected.
 3. **Quantification** = correlation of detected junction reads vs `expected_junction_reads`.

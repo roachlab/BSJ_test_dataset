@@ -14,6 +14,8 @@ BASE_TOL  = config["base_tol"]
 LIBS      = config["libraries"]
 TOOLS     = config["tools"]
 CIRI2     = config["ciri2_path"]
+BSJ_FINDER = config.get("bsj_finder_dir", "..")   # bsj_finder repo root (working dir = benchmark/)
+MERGE_TOL  = config.get("bsj_finder_merge_tol", 5)
 
 wildcard_constraints:
     lib = "|".join(LIBS.keys())
@@ -32,6 +34,8 @@ def all_eval_jsons():
         j += expand("results/circexplorer2/eval_{lib}_known.json",  lib=LIBS)
     if "ciri2" in TOOLS:
         j += expand("results/ciri2/eval_{lib}.json", lib=LIBS)
+    if "bsj_finder" in TOOLS:
+        j += expand("results/bsj_finder/eval_{lib}.json", lib=LIBS)
     return j
 
 PLOTS = expand("results/plots/{p}.png",
@@ -56,7 +60,7 @@ rule star_index:
         GLEN=$(grep -v '>' {input.fa} | tr -d '\n' | wc -c)
         SAIDX=$(python3 -c "import math;print(min(14,int(math.log2($GLEN)/2-1)))")
         STAR --runMode genomeGenerate --genomeDir {output} \
-             --genomeFastaFiles {input.fa} --sjdbGTFfile {input.gtf} \
+             --genomeFastaFiles {input.fa} \
              --genomeSAindexNbases $SAIDX --runThreadN {threads}
         """
 
@@ -93,7 +97,6 @@ rule star_align:
         r"""
         STAR --runThreadN {threads} --genomeDir {input.idx} \
              --readFilesIn {input.reads} --readFilesCommand zcat \
-             --sjdbOverhang {params.overhang} \
              --chimSegmentMin 10 --chimJunctionOverhangMin 10 --chimOutType Junctions \
              --chimScoreMin 1 --alignSJoverhangMin 8 \
              --outSAMtype BAM Unsorted --outFileNamePrefix {params.pfx}
@@ -168,6 +171,59 @@ rule eval_ciri2:
         "python3 evaluate.py --tool ciri2 --calls {input.calls} "
         "--dataset {params.ds} --library {wildcards.lib} --base-tol {params.tol} "
         "--out-prefix results/ciri2/eval_{wildcards.lib}"
+
+# ======================================================================
+# bsj_finder  (the real pipeline, driven to its detection target only)
+# ======================================================================
+rule bsj_finder_detect:
+    input:
+        reads=lambda wc: reads(wc.lib)
+    output:
+        tsv="results/bsj_finder/{lib}.bsj_cor.tsv.gz"
+    params:
+        genome=GENOME, bfdir=BSJ_FINDER
+    threads: THREADS
+    shell:
+        r"""
+        mkdir -p results/bsj_finder
+        RDIR=results/bsj_finder/reads/{wildcards.lib}
+        WORK=results/bsj_finder/work/{wildcards.lib}
+        rm -rf "$RDIR"; mkdir -p "$RDIR" "$WORK"
+        set -- {input.reads}
+        if [ "$#" -eq 1 ]; then
+            ln -sf "$(cd "$(dirname "$1")" && pwd)/$(basename "$1")" "$RDIR/{wildcards.lib}.fastq.gz"   # SE: no _R1 tag
+        else
+            i=0
+            for r in {input.reads}; do
+                i=$((i+1))
+                ln -sf "$(cd "$(dirname "$r")" && pwd)/$(basename "$r")" "$RDIR/{wildcards.lib}_R${{i}}.fastq.gz"
+            done
+        fi
+        BFDIR=$(cd {params.bfdir} && pwd)
+        GEN=$(cd "$(dirname {params.genome})" && pwd)/$(basename {params.genome})
+        RDIR_ABS=$(cd "$RDIR" && pwd)
+        WORK_ABS=$(cd "$WORK" && pwd)
+        snakemake -s "$BFDIR/Snakefile" -d "$BFDIR" --cores {threads} --use-conda \
+            --config readDirectory="$RDIR_ABS" genome="$GEN" outdir="$WORK_ABS" \
+            -- "$WORK_ABS/bsj_results/{wildcards.lib}.bsj_cor.tsv.gz"
+        cp "$WORK_ABS/bsj_results/{wildcards.lib}.bsj_cor.tsv.gz" {output.tsv}
+        """
+
+rule bsj_finder_bed:
+    input: tsv="results/bsj_finder/{lib}.bsj_cor.tsv.gz"
+    output: bed="results/bsj_finder/{lib}.bsj.bed"
+    params: tol=MERGE_TOL
+    shell:
+        "python3 bsj_finder_to_bed.py --in {input.tsv} --out {output.bed} --merge-tol {params.tol}"
+
+rule eval_bsj_finder:
+    input: calls="results/bsj_finder/{lib}.bsj.bed"
+    output: "results/bsj_finder/eval_{lib}.json"
+    params: tol=BASE_TOL, ds=DATASET
+    shell:
+        "python3 evaluate.py --tool bed --tool-name bsj_finder --calls {input.calls} "
+        "--dataset {params.ds} --library {wildcards.lib} --base-tol {params.tol} "
+        "--out-prefix results/bsj_finder/eval_{wildcards.lib}"
 
 # ======================================================================
 # Aggregate + plot
