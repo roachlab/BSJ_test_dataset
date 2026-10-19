@@ -40,7 +40,7 @@ def all_eval_jsons():
 
 PLOTS = expand("results/plots/{p}.png",
                p=["recall_vs_coverage", "per_category_recall",
-                  "precision_recall_f1", "quantification"])
+                  "precision_recall_f1", "quantification", "strand_accuracy"])
 
 rule all:
     input:

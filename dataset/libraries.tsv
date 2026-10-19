@@ -1,0 +1,13 @@
+library	layout	read_len	sub_rate	indel_rate	strandedness	derived_from
+pe150_lowerr	pe	150	0.002	0.0	fwd	.
+pe150_higherr	pe	150	0.02	0.003	fwd	.
+pe100_lowerr	pe	100	0.002	0.0	fwd	.
+pe100_higherr	pe	100	0.02	0.003	fwd	.
+se150_lowerr	se	150	0.002	0.0	fwd	.
+se150_higherr	se	150	0.02	0.003	fwd	.
+se100_lowerr	se	100	0.002	0.0	fwd	.
+se100_higherr	se	100	0.02	0.003	fwd	.
+pe150_lowerr_rev	pe	150	0.002	0.0	rev	pe150_lowerr
+pe150_lowerr_unstr	pe	150	0.002	0.0	unstranded	pe150_lowerr
+se150_lowerr_rev	se	150	0.002	0.0	rev	se150_lowerr
+se150_lowerr_unstr	se	150	0.002	0.0	unstranded	se150_lowerr

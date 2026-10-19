@@ -22,6 +22,13 @@ within --merge-tol bp are clustered into a single junction, the representative
 coordinate is the most frequent exact (s_start,s_end) in the cluster, and
 junction_reads is the number of supporting reads (feeds the quantification metric).
 
+Clustering ignores strand: in a reverse-stranded or unstranded library (and for R2 of a
+pair) reads of one junction align to both strands, and splitting on strand would turn
+one junction into two calls. The reported strand is the majority s_strand of the
+cluster's reads ('.' on a tie), so it is the transcript strand only if bsj_finder's
+s_strand is (i.e. after bsj_finder corrects for library strandedness); evaluate.py
+scores it against the truth strand.
+
 Dependency-free (stdlib only) so it runs anywhere the benchmark does.
 
 Usage:
@@ -72,31 +79,35 @@ def read_rows(path):
 
 
 def cluster(rows, merge_tol):
-    """Greedy single-linkage-ish clustering on (chrom, strand); merge when BOTH
+    """Greedy single-linkage-ish clustering per chrom (strand-blind); merge when BOTH
     breakpoints are within merge_tol of a cluster's current representative."""
     by_group = {}
     for (chrom, s, e, strand) in rows:
-        by_group.setdefault((chrom, strand), []).append((s, e))
+        by_group.setdefault(chrom, []).append((s, e, strand))
 
     calls = []  # (chrom, start, end, reads, strand)
-    for (chrom, strand), pts in by_group.items():
+    for chrom, pts in by_group.items():
         pts.sort()
-        clusters = []  # each: {"rep": (s,e), "members": Counter()}
-        for (s, e) in pts:
+        clusters = []  # each: {"rep": (s,e), "members": Counter(), "strands": Counter()}
+        for (s, e, strand) in pts:
             placed = False
             for c in clusters:
                 rs, re = c["rep"]
                 if abs(s - rs) <= merge_tol and abs(e - re) <= merge_tol:
                     c["members"][(s, e)] += 1
+                    c["strands"][strand] += 1
                     # keep representative as the running mode (ties -> smallest)
                     c["rep"] = c["members"].most_common(1)[0][0]
                     placed = True
                     break
             if not placed:
-                clusters.append({"rep": (s, e), "members": Counter({(s, e): 1})})
+                clusters.append({"rep": (s, e), "members": Counter({(s, e): 1}),
+                                 "strands": Counter({strand: 1})})
         for c in clusters:
             reads = sum(c["members"].values())
             rs, re = c["members"].most_common(1)[0][0]
+            n_plus, n_minus = c["strands"]["+"], c["strands"]["-"]
+            strand = "+" if n_plus > n_minus else "-" if n_minus > n_plus else "."
             calls.append((chrom, rs, re, reads, strand))
     # stable, readable ordering
     calls.sort(key=lambda x: (x[0], x[1], x[2]))

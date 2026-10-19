@@ -11,7 +11,9 @@ detection pipelines. Every read's origin is recorded, so you can score **sensiti
 |------|-------------|
 | `genome.fa` | Reference, 3 contigs: `chrT1` (700 kb), `chrT2` (600 kb), `chrP` (200 kb). |
 | `annotation.gtf` | Gene models. **Deliberately omits**: category-C circle exons, all intronic (D) / EIciRNA (E) features, intergenic & antisense (M) circles. |
-| `reads_{pe,se}{150,100}_{lowerr,higherr}*.fastq.gz` | 8 read libraries — see below. |
+| `reads_{pe,se}{150,100}_{lowerr,higherr}*.fastq.gz` | 8 forward-stranded read libraries — see below. |
+| `reads_{pe,se}150_lowerr_{rev,unstr}*.fastq.gz` | 4 strandedness variants (reverse-stranded, unstranded) — see below. |
+| `libraries.tsv` | Per library: layout, read length, error rates, strandedness, base library. |
 | `truth_bsj.tsv` | One row per true BSJ (see columns below). |
 | `truth_bsj.bed` | BED6 of the two breakpoints per circle. |
 | `truth_bsj_sequences.fa` | Per circle: 100 bp junction window (50 bp each side of the BSJ) + full circle sequence. |
@@ -39,6 +41,29 @@ reads from the same underlying truth** — only layout, length and error differ.
 Paired libraries use a 330 bp fragment. To isolate one axis, hold the others fixed —
 e.g. `pe150_lowerr` vs `se150_lowerr` isolates paired-ness; `pe150_lowerr` vs `pe100_lowerr`
 isolates read length.
+
+### Strandedness
+
+All eight libraries above are **forward-stranded**: R1 (or the single read) is the
+transcript-sense sequence (ligation-type protocols; featureCounts `-s 1`, HISAT2 `FR`,
+Salmon `ISF`/`SF`). Most total-RNA-seq (dUTP, e.g. TruSeq Stranded Total RNA) is
+**reverse-stranded**: R1 is antisense (featureCounts `-s 2`, HISAT2 `RF`, Salmon `ISR`/`SR`).
+Four extra libraries re-emit the **exact same fragments** as `pe150_lowerr` / `se150_lowerr`
+with only the strand protocol changed, so any difference against the base library is due to
+strandedness alone:
+
+| Library | Derived from | Strandedness | How |
+|---------|--------------|--------------|-----|
+| `pe150_lowerr_rev` | `pe150_lowerr` | reverse | R1/R2 swapped |
+| `pe150_lowerr_unstr` | `pe150_lowerr` | unstranded | each fragment fwd or swapped (50/50) |
+| `se150_lowerr_rev` | `se150_lowerr` | reverse | read reverse-complemented |
+| `se150_lowerr_unstr` | `se150_lowerr` | unstranded | each read as-is or reverse-complemented (50/50) |
+
+`libraries.tsv` lists every library's layout, read length, error model and strandedness.
+The evaluator scores the **strand each caller declares** for every detected BSJ against
+`truth_bsj.tsv`. That catches a caller that finds the junction but reports the read-alignment
+strand instead of the transcript strand, which is invisible in a forward-stranded library and
+flips every call in a reverse-stranded one.
 
 **Read-length-dependent case:** category-I circles are shorter than a read, so reads wrap the
 loop and cross the BSJ more than once. `BSJ_I3` is 120 bp — between the two read lengths — so
@@ -108,6 +133,9 @@ must be rejected).
 3. **Quantification** = correlation of detected junction reads vs `expected_junction_reads`.
 4. Run all eight libraries (PE/SE x 150/100 bp x low/high error) to expose error-, length-
    and anchor-sensitivity, and to separate the read-length effect from the mate-pair effect.
+5. **Strand** = for each detected BSJ, does the reported strand equal `truth_bsj.tsv` `strand`?
+   Compare `*_rev` / `*_unstr` against their base library: detection should be unchanged and
+   the declared strand should still be the transcript strand.
 
 ## Regenerating
 

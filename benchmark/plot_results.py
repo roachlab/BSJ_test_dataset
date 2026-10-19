@@ -7,6 +7,7 @@ Outputs (PNG, into --out):
   per_category_recall.png       heatmap of recall per test-case category (A-M) x run
   precision_recall_f1.png       grouped bars of precision / recall / F1 / specificity per run
   quantification.png            Spearman correlation of detected vs expected junction reads per run
+  strand_accuracy.png           strand of matched calls: correct / wrong / none, per run
 
 Usage:
   python3 plot_results.py --results results --out results/plots
@@ -92,6 +93,23 @@ def plot_quant(runs, out):
     plt.grid(axis="y", alpha=0.3)
     plt.tight_layout(); plt.savefig(os.path.join(out, "quantification.png"), dpi=140); plt.close()
 
+def plot_strand(runs, out):
+    x = np.arange(len(runs))
+    ok = np.array([r.get("strand_correct", 0) for r in runs], float)
+    bad = np.array([r.get("strand_wrong", 0) for r in runs], float)
+    unk = np.array([r.get("strand_unknown", 0) for r in runs], float)
+    tp = np.where(ok + bad + unk > 0, ok + bad + unk, np.nan)
+    plt.figure(figsize=(max(6, 1.2*len(runs)+2), 4.5))
+    plt.bar(x, ok/tp, color="#55A868", label="correct strand")
+    plt.bar(x, bad/tp, bottom=ok/tp, color="#C44E52", label="wrong strand")
+    plt.bar(x, unk/tp, bottom=(ok+bad)/tp, color="#BBBBBB", label="no strand")
+    plt.xticks(x, [f"{r['label']} [{r.get('strandedness', 'NA')}]" for r in runs],
+               rotation=40, ha="right", fontsize=7)
+    plt.ylim(0, 1.05); plt.ylabel("fraction of matched BSJs")
+    plt.title("Strand of detected BSJs vs truth")
+    plt.legend(fontsize=8); plt.grid(axis="y", alpha=0.3)
+    plt.tight_layout(); plt.savefig(os.path.join(out, "strand_accuracy.png"), dpi=140); plt.close()
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--results", default="results")
@@ -106,7 +124,8 @@ def main():
     plot_category_heatmap(runs, out)
     plot_prf(runs, out)
     plot_quant(runs, out)
-    print(f"Wrote 4 plots for {len(runs)} run(s) -> {out}/")
+    plot_strand(runs, out)
+    print(f"Wrote 5 plots for {len(runs)} run(s) -> {out}/")
 
 if __name__ == "__main__":
     main()

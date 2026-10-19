@@ -7,7 +7,10 @@ tool-agnostic, so you can score your own pipeline the same way.
 The eight libraries are the full **{PE, SE} x {150, 100} bp x {low, high error}** factorial, so
 read length and library layout can be compared independently — hold two axes fixed to isolate
 the third (e.g. `pe150_lowerr` vs `se150_lowerr` for paired-ness, `pe150_lowerr` vs
-`pe100_lowerr` for read length). Trim the `libraries` block in `config.yaml` to run a subset.
+`pe100_lowerr` for read length). Four more libraries (`pe150_lowerr_rev`, `pe150_lowerr_unstr`,
+`se150_lowerr_rev`, `se150_lowerr_unstr`) carry the same fragments as their `*150_lowerr` base
+but reverse-stranded (dUTP-style, R1 antisense — typical total RNA-seq) or unstranded; the base
+libraries are forward-stranded. Trim the `libraries` block in `config.yaml` to run a subset.
 
 ## Layout
 
@@ -90,9 +93,9 @@ snakemake --cores 8                                             # everything, al
 ```
 
 Settings in `config.yaml`: `bsj_finder_dir` (repo root, relative to `benchmark/`; default `..`)
-and `bsj_finder_merge_tol` (breakpoint clustering tolerance). Coverage note: category **J2**
-shares identical breakpoints with **J1**, so a coordinate matcher can match at most one of the
-two — 48/49 is the ceiling for any coordinate-based caller, bsj_finder included.
+and `bsj_finder_merge_tol` (breakpoint clustering tolerance). Coverage note: the two
+**J2** isoforms share identical breakpoints and are scored as one truth junction (`BSJ_J2`),
+so 48/48 is reachable by any coordinate-based caller, bsj_finder included.
 
 ## What gets matched
 
@@ -104,9 +107,9 @@ differences between tools. Each truth BSJ and each call is matched at most once.
 
 ## Metrics (per tool x library)
 
-Positives = the 49 true BSJ loci; negatives = the 39 decoy loci.
+Positives = the 48 true BSJ loci; negatives = the 39 decoy loci.
 
-- **Recall** = TP / 49 — fraction of true BSJs detected. Also broken out **per category**
+- **Recall** = TP / 48 — fraction of true BSJs detected. Also broken out **per category**
   (A-M) and **per coverage bin** (1-2, 3-9, 10-49, 50+ junction reads) so you can read the
   sensitivity floor directly.
 - **Precision** = TP / (TP + FP). FP is split into `FP_on_decoy` (a call landing on a decoy
@@ -114,14 +117,21 @@ Positives = the 49 true BSJ loci; negatives = the 39 decoy loci.
   or a decoy).
 - **F1** = harmonic mean of precision and recall — the single headline number.
 - **Specificity** = TN / 39 over the decoy set (decoys correctly not called).
-- **Accuracy** = (TP + TN) / (49 + 39) over the positive+decoy locus universe. Reported for
+- **Accuracy** = (TP + TN) / (48 + 39) over the positive+decoy locus universe. Reported for
   completeness; F1 + specificity are more informative for detection because off-target FPs are
   not part of this denominator.
 - **FDR** = FP / (TP + FP).
 - **Quantification** = Pearson + Spearman correlation of detected vs `expected_junction_reads`
   across matched calls — how well junction-read counts track the truth.
-- **missed** / **decoys_called** lists (in the JSON) name exactly which loci failed, for
-  drill-down.
+- **Strand** — matching is strand-blind; the strand each tool declares for a matched call is
+  then compared to `truth_bsj.tsv`: `strand_correct` / `strand_wrong` / `strand_unknown` (`.`),
+  `strand_accuracy` = correct / TP, `recall_strand` = correct-strand TP / 48, and
+  `strand_accuracy_by_truth_strand` (`+` vs `-`; the truth set is 42 `+` / 6 `-`, so always
+  answering `+` scores 0.875). `strandedness` (fwd / rev / unstranded) is taken from
+  `../dataset/libraries.tsv`. Read the `*_rev` / `*_unstr` runs against their base library:
+  a caller that reports read-alignment strand is right on fwd, wrong on every call on rev.
+- **missed** / **decoys_called** / **strand_wrong_ids** lists (in the JSON) name exactly which
+  loci failed, for drill-down.
 
 ## Expected behaviour / gotchas
 

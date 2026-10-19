@@ -5,7 +5,9 @@ Tiny BSJ (back-splice junction / circRNA) test-dataset generator.
 Produces a small, fully-labelled dataset for validating circRNA detection pipelines:
   - genome.fa            ~1.5 Mbp, 3 contigs
   - annotation.gtf       gene models (with deliberate omissions)
-  - reads_*.fastq.gz     {PE, SE} x {150, 100} bp x {low, high} error = 8 libraries
+  - reads_*.fastq.gz     {PE, SE} x {150, 100} bp x {low, high} error = 8 forward-stranded
+                         libraries, plus 4 reverse/unstranded variants of pe150/se150_lowerr
+  - libraries.tsv        per-library layout, read length, error model, strandedness
   - truth_bsj.tsv/.bed   true back-splice junctions
   - truth_bsj_sequences.fa
   - truth_negatives.tsv  decoy loci (expected: no circle call)
@@ -130,8 +132,8 @@ def circle_from_gene(gene, i, j, extra_seq=""):
 # Read jobs: collected first, then rendered into each library
 # --------------------------------------------------------------------------
 read_jobs = []   # dicts describing how to emit reads
-def add_circle_job(origin_id, seq, n_junction, n_body, note):
-    read_jobs.append(dict(kind="circle", origin=origin_id, seq=seq,
+def add_circle_job(origin_id, seq, n_junction, n_body, note, truth_id=None):
+    read_jobs.append(dict(kind="circle", origin=origin_id, truth_id=truth_id or origin_id, seq=seq,
                           n_junction=n_junction, n_body=n_body,
                           spans=True, role="positive", note=note))
 def add_linear_job(origin_id, seq, n, role="negative", note="", spans=False):
@@ -293,10 +295,15 @@ gj2 = make_gene("geneJ2", "chrT2", "+", [200, 150, 150, 180], [600, 650, 600])
 annotated_genes.append(gj2)
 seqA, acc, don, gs, ge = circle_from_gene(gj2, 0, 3)               # full body
 seqB = gj2.exon_seqs[0] + gj2.exon_seqs[3]                          # exon-skipped body, same BSJ
+# Both isoforms share one back-splice junction, so they are ONE truth row (BSJ_J2, 40+10
+# junction reads); isoform resolution is out of benchmark scope. Reads keep per-isoform origins.
+reg_bsj("BSJ_J2", "J_alt_backsplice", gj2, acc, don, gs, ge, "GT/AG",
+        "exonic_altIntern", 40 + 10,
+        note="one back-splice junction; two internal-splicing isoforms collapsed "
+             "(isoform resolution out of benchmark scope)")
 for n, (sq, cov) in enumerate([(seqA, 40), (seqB, 10)], 1):
-    reg_bsj(f"BSJ_J2_{n}", "J_alt_backsplice", gj2, acc, don, gs, ge, "GT/AG",
-            "exonic_altIntern", cov, note="same BSJ, internal alternative splicing")
-    add_circle_job(f"BSJ_J2_{n}", sq, cov, max(2, cov//3), "J alt internal splicing")
+    add_circle_job(f"BSJ_J2_{n}", sq, cov, max(2, cov//3), "J alt internal splicing",
+                   truth_id="BSJ_J2")
 
 # ---- K: nested / overlapping circles (3 from one gene) ----
 gk = make_gene("geneK1", "chrT2", "+", [200, 170, 160, 150, 180], [600, 650, 600, 650])
@@ -527,6 +534,23 @@ LIBS = [
 ]
 FRAG = 330
 
+# Library strandedness. Every base library above is FORWARD-stranded: R1 (or the single read)
+# is the transcript-sense sequence and R2 its reverse complement (ligation-type protocols;
+# featureCounts -s 1, HISAT2 --rna-strandness FR, Salmon ISF/SF). Typical total-RNA-seq
+# (dUTP, e.g. TruSeq Stranded Total RNA) is REVERSE-stranded: R1 is antisense (featureCounts
+# -s 2, HISAT2 RF, Salmon ISR/SR). Each variant re-emits a base library's exact fragments with
+# only the strand protocol changed, so any difference is attributable to strandedness alone:
+#   rev         PE: R1/R2 swapped;  SE: read reverse-complemented
+#   unstranded  each fragment independently gets the fwd or rev orientation (50/50)
+# (tag, base_library, strandedness)
+STRAND_VARIANTS = [
+    ("pe150_lowerr_rev",   "pe150_lowerr", "rev"),
+    ("pe150_lowerr_unstr", "pe150_lowerr", "unstranded"),
+    ("se150_lowerr_rev",   "se150_lowerr", "rev"),
+    ("se150_lowerr_unstr", "se150_lowerr", "unstranded"),
+]
+strand_rng = random.Random(SEED + 1)   # separate stream, so the base libraries stay byte-identical
+
 origin_rows = []   # (read_id, library, origin, kind, spans, role, note)
 
 def emit_fastq():
@@ -610,6 +634,44 @@ def emit_fastq():
         f1.close()
         if f2: f2.close()
 
+def read_fastq(path):
+    with gzip.open(path, "rt") as fh:
+        while True:
+            h = fh.readline()
+            if not h:
+                return
+            s = fh.readline().rstrip("\n"); fh.readline(); fh.readline()
+            yield h[1:].rstrip("\n"), s
+
+def emit_strand_variants():
+    is_pe = {t: pe for t, pe, *_ in LIBS}
+    for tag, base, strandedness in STRAND_VARIANTS:
+        base_rows = [r for r in origin_rows if r[1] == base]
+        if is_pe[base]:
+            src = zip(read_fastq(os.path.join(OUT, f"reads_{base}_R1.fastq.gz")),
+                      read_fastq(os.path.join(OUT, f"reads_{base}_R2.fastq.gz")))
+            f1 = gzip.open(os.path.join(OUT, f"reads_{tag}_R1.fastq.gz"), "wt")
+            f2 = gzip.open(os.path.join(OUT, f"reads_{tag}_R2.fastq.gz"), "wt")
+        else:
+            src = ((r, None) for r in read_fastq(os.path.join(OUT, f"reads_{base}.fastq.gz")))
+            f1 = gzip.open(os.path.join(OUT, f"reads_{tag}.fastq.gz"), "wt")
+            f2 = None
+        for row, (rec1, rec2) in zip(base_rows, src):
+            assert rec1[0].split("/")[0] == row[0], (rec1[0], row[0])
+            rid = f"{tag}:{row[0].split(':', 1)[1]}"
+            flip = strandedness == "rev" or (strandedness == "unstranded" and strand_rng.random() < 0.5)
+            s1, s2 = rec1[1], (rec2[1] if rec2 else "")
+            if flip:
+                s1, s2 = (s2, s1) if f2 else (revcomp(s1), "")
+            if f2:
+                f1.write(f"@{rid}/1\n{s1}\n+\n{'I' * len(s1)}\n")
+                f2.write(f"@{rid}/2\n{s2}\n+\n{'I' * len(s2)}\n")
+            else:
+                f1.write(f"@{rid}\n{s1}\n+\n{'I' * len(s1)}\n")
+            origin_rows.append((rid, tag) + row[2:])
+        f1.close()
+        if f2: f2.close()
+
 # ==========================================================================
 #  OUTPUT: genome, GTF, truth files
 # ==========================================================================
@@ -667,15 +729,26 @@ def write_truth():
 
 def write_bsj_sequences():
     with open(os.path.join(OUT, "truth_bsj_sequences.fa"), "w") as fh:
+        seen = set()
         for job in read_jobs:
-            if job["kind"] != "circle":
-                continue
+            if job["kind"] != "circle" or job["truth_id"] in seen:
+                continue       # one entry per truth BSJ (first isoform wins, e.g. BSJ_J2)
+            seen.add(job["truth_id"])
             seq = job["seq"]
             # junction window: 50bp upstream of BSJ (3' end) + 50bp downstream (5' start)
             w = min(50, len(seq))
             jwin = seq[-w:] + seq[:w]
-            fh.write(f">{job['origin']}|junction_window\n{wrap60(jwin)}\n")
-            fh.write(f">{job['origin']}|full_circle\n{wrap60(seq)}\n")
+            fh.write(f">{job['truth_id']}|junction_window\n{wrap60(jwin)}\n")
+            fh.write(f">{job['truth_id']}|full_circle\n{wrap60(seq)}\n")
+
+def write_libraries():
+    with open(os.path.join(OUT, "libraries.tsv"), "w") as fh:
+        fh.write("library\tlayout\tread_len\tsub_rate\tindel_rate\tstrandedness\tderived_from\n")
+        spec = {t: (pe, rlen, sub, indel) for t, pe, rlen, sub, indel in LIBS}
+        rows = [(t, t, "fwd", ".") for t in spec] + [(t, b, s, b) for t, b, s in STRAND_VARIANTS]
+        for tag, base, strandedness, derived in rows:
+            pe, rlen, sub, indel = spec[base]
+            fh.write(f"{tag}\t{'pe' if pe else 'se'}\t{rlen}\t{sub}\t{indel}\t{strandedness}\t{derived}\n")
 
 def write_read_origin():
     with open(os.path.join(OUT, "read_origin.tsv"), "w") as fh:
@@ -707,6 +780,8 @@ for b in bsj_truth:
 write_genome()
 write_gtf()
 emit_fastq()
+emit_strand_variants()
+write_libraries()
 write_truth()
 write_bsj_sequences()
 write_read_origin()

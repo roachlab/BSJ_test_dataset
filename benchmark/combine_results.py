@@ -8,8 +8,8 @@ def main():
              if not any(part.startswith("_") for part in f.split(os.sep))]
     if not files:
         print(f"No *.json under {root}/ (run the pipelines first)"); return
-    cols = ["tool", "library", "calls", "TP", "FN", "FP", "precision", "recall",
-            "f1", "specificity", "accuracy", "quant_spearman"]
+    cols = ["tool", "library", "strandedness", "calls", "TP", "FN", "FP", "precision", "recall",
+            "f1", "specificity", "accuracy", "quant_spearman", "strand_accuracy", "recall_strand"]
     rows = []
     for f in files:
         d = json.load(open(f))
