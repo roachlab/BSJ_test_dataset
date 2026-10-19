@@ -45,5 +45,5 @@ BSJ_L2	L_indel_junction	chrT2	129590	130569	129590	130570	+	GT/AG	exonic_indel	9
 BSJ_L3	L_indel_junction	chrT2	135810	136789	135810	136790	+	GT/AG	exonic_indel	3	4	4 non-templated bases inserted at junction
 BSJ_M_ig1	M_intergenic	chrT1	139080	140049	139080	140050	+	GG/GA	intergenic	25	0	circle from fully un-annotated intergenic locus
 BSJ_M_ig2	M_intergenic	chrT1	143880	144849	143880	144850	+	AC/GG	intergenic	10	0	circle from fully un-annotated intergenic locus
-BSJ_M_as1	M_antisense	chrT1	150909	148830	148830	150910	-	CT/AC	antisense	4	0	antisense circle overlapping a sense gene
-BSJ_M_as2	M_antisense	chrT1	157389	155310	155310	157390	-	CT/AC	antisense	2	0	antisense circle overlapping a sense gene
+BSJ_M_as1	M_antisense	chrT1	150909	148830	148830	150910	-	GT/AG	antisense	4	0	antisense circle overlapping a sense gene; CT/AC on the plus strand
+BSJ_M_as2	M_antisense	chrT1	157389	155310	155310	157390	-	GT/AG	antisense	2	0	antisense circle overlapping a sense gene; CT/AC on the plus strand

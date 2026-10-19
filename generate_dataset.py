@@ -352,13 +352,34 @@ for n, cov in enumerate(M2_cov, 1):
     annotated_genes.append(host)
     # antisense circle: take the antisense strand of host's exon span
     gs = host.exons[0][0]; ge = host.exons[2][1]
+    # Give the circle its OWN minus-strand splice sites. Without this the only
+    # motifs at gs/ge are the host's plus-strand ones (AG before gs, GT after ge),
+    # the genome reads GT/AG there, and a motif-based strand caller is told the
+    # circle is '+' -- so the dataset could not actually test the one case that
+    # separates motif inference from a host-gene lookup, even though the truth
+    # table has always claimed CT/AC for these.
+    #
+    # On the minus strand the transcript runs high->low, so the intron downstream
+    # of the circle's 3' end sits BELOW gs and the one upstream of its 5' start
+    # sits ABOVE ge. Read off the plus strand those are the reverse complements,
+    # donor and acceptor swapping ends: AC immediately before gs, CT immediately
+    # after ge. That is exactly the CT/AC recorded below.
+    #
+    # This overwrites 2 bases of the host's flanking introns at each end, leaving
+    # the host with non-canonical flanks. Harmless: the host exists only to be an
+    # annotated sense gene overlapping the circle -- no reads are generated from
+    # it and no truth BSJ uses its splice sites. It consumes no RNG draws either,
+    # so every other locus in the dataset stays byte-identical.
+    write_region(host.contig, gs - 2, "AC")
+    write_region(host.contig, ge, "CT")
     circ = revcomp("".join(contigs[host.contig][gs:ge]))
     acc, don = ge - 1, gs   # on the - strand
     class _TmpM:
         strand = "-"; contig = "chrT1"
     _TmpM.contig = host.contig
     reg_bsj(f"BSJ_M_as{n}", "M_antisense", _TmpM, acc, don, gs, ge, "GT/AG",
-            "antisense", cov, note="antisense circle overlapping a sense gene")
+            "antisense", cov,
+            note="antisense circle overlapping a sense gene; CT/AC on the plus strand")
     bsj_truth[-1]["chrom"] = host.contig
     add_circle_job(f"BSJ_M_as{n}", circ, cov, max(1, cov//3), "M antisense")
 
