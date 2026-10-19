@@ -23,6 +23,7 @@ SMK_ARGS="${SMK_ARGS---use-conda}"
 # Resolve to absolute paths (bsj_finder runs in its own working dir).
 DATASET="$(cd "$DATASET" && pwd)"
 GENOME="$DATASET/genome.fa"
+GTF="$DATASET/annotation.gtf"     # host-gene strand fallback for unstranded libraries
 BENCH="$(pwd)"
 mkdir -p "$OUT"
 OUT_ABS="$(cd "$OUT" && pwd)"
@@ -57,7 +58,7 @@ run_lib () {
   snakemake \
       -s "$BSJ_FINDER/Snakefile" -d "$BSJ_FINDER" \
       --cores "$THREADS" $SMK_ARGS \
-      --config readDirectory="$rdir" genome="$GENOME" outdir="$work" \
+      --config readDirectory="$rdir" genome="$GENOME" annotation="$GTF" outdir="$work" \
       -- "$target"
 
   # Convert per-read BSJ table -> aggregated BED6, then score.

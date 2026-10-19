@@ -181,7 +181,7 @@ rule bsj_finder_detect:
     output:
         tsv="results/bsj_finder/{lib}.bsj_cor.tsv.gz"
     params:
-        genome=GENOME, bfdir=BSJ_FINDER
+        genome=GENOME, gtf=GTF, bfdir=BSJ_FINDER
     threads: THREADS
     shell:
         r"""
@@ -201,10 +201,11 @@ rule bsj_finder_detect:
         fi
         BFDIR=$(cd {params.bfdir} && pwd)
         GEN=$(cd "$(dirname {params.genome})" && pwd)/$(basename {params.genome})
+        GTF_ABS=$(cd "$(dirname {params.gtf})" && pwd)/$(basename {params.gtf})   # host-gene strand fallback (unstranded libraries)
         RDIR_ABS=$(cd "$RDIR" && pwd)
         WORK_ABS=$(cd "$WORK" && pwd)
         snakemake -s "$BFDIR/Snakefile" -d "$BFDIR" --cores {threads} --use-conda \
-            --config readDirectory="$RDIR_ABS" genome="$GEN" outdir="$WORK_ABS" \
+            --config readDirectory="$RDIR_ABS" genome="$GEN" annotation="$GTF_ABS" outdir="$WORK_ABS" \
             -- "$WORK_ABS/bsj_results/{wildcards.lib}.bsj_cor.tsv.gz"
         cp "$WORK_ABS/bsj_results/{wildcards.lib}.bsj_cor.tsv.gz" {output.tsv}
         """
