@@ -317,7 +317,8 @@ python3 benchmark/plot_results.py --results benchmark/results --out benchmark/re
 
 ### Current results (2026-10-19; all 12 libraries)
 
-CIRCexplorer2 and CIRI2 ran in `bsj-bench.sif`. bsj_finder ran on the host from branch
+CIRCexplorer2 and CIRI2 ran in `bsj-bench.sif` (rerun on the genome after `9087d87`, which gave the antisense
+circles real minus-strand splice sites). bsj_finder ran on the host from branch
 `dev/2026-09-29-strandedness` (`ad5b3f6`), with `library_strandedness: auto` and
 `annotation: dataset/annotation.gtf`; that is newer than the submodule pin. Its
 auto-detection called all 12 libraries correctly (8 forward, the 2 `*_rev` reverse, the 2
@@ -338,14 +339,14 @@ correct-strand ÷ TP.
 | bsj_finder | se150_higherr | 49 | 47 | 0.959 | 0.979 | 0.969 | 1.000 | 0.990 | 1.000 |
 | bsj_finder | se100_lowerr | 46 | 46 | 1.000 | 0.958 | 0.979 | 1.000 | 0.974 | 1.000 |
 | bsj_finder | se100_higherr | 44 | 44 | 1.000 | 0.917 | 0.957 | 1.000 | 0.975 | 1.000 |
-| CIRI2 | pe150_lowerr | 35 | 35 | 1.000 | 0.729 | 0.843 | 1.000 | 0.996 | 0.943 |
-| CIRI2 | pe150_higherr | 34 | 34 | 1.000 | 0.708 | 0.829 | 1.000 | 0.997 | 0.941 |
-| CIRI2 | pe100_lowerr | 35 | 35 | 1.000 | 0.729 | 0.843 | 1.000 | 1.000 | 0.943 |
-| CIRI2 | pe100_higherr | 33 | 33 | 1.000 | 0.688 | 0.815 | 1.000 | 0.996 | 0.939 |
-| CIRI2 | se150_lowerr | 35 | 35 | 1.000 | 0.729 | 0.843 | 1.000 | 0.998 | 0.943 |
-| CIRI2 | se150_higherr | 33 | 33 | 1.000 | 0.688 | 0.815 | 1.000 | 0.997 | 0.970 |
-| CIRI2 | se100_lowerr | 35 | 35 | 1.000 | 0.729 | 0.843 | 1.000 | 0.999 | 0.943 |
-| CIRI2 | se100_higherr | 34 | 34 | 1.000 | 0.708 | 0.829 | 1.000 | 0.996 | 0.941 |
+| CIRI2 | pe150_lowerr | 35 | 35 | 1.000 | 0.729 | 0.843 | 1.000 | 0.996 | 1.000 |
+| CIRI2 | pe150_higherr | 34 | 34 | 1.000 | 0.708 | 0.829 | 1.000 | 0.997 | 1.000 |
+| CIRI2 | pe100_lowerr | 35 | 35 | 1.000 | 0.729 | 0.843 | 1.000 | 1.000 | 1.000 |
+| CIRI2 | pe100_higherr | 33 | 33 | 1.000 | 0.688 | 0.815 | 1.000 | 0.996 | 1.000 |
+| CIRI2 | se150_lowerr | 35 | 35 | 1.000 | 0.729 | 0.843 | 1.000 | 0.998 | 1.000 |
+| CIRI2 | se150_higherr | 33 | 33 | 1.000 | 0.688 | 0.815 | 1.000 | 0.997 | 1.000 |
+| CIRI2 | se100_lowerr | 35 | 35 | 1.000 | 0.729 | 0.843 | 1.000 | 0.999 | 1.000 |
+| CIRI2 | se100_higherr | 34 | 34 | 1.000 | 0.708 | 0.829 | 1.000 | 0.996 | 1.000 |
 | CIRCexplorer2 (de novo) | pe150_lowerr | 34 | 32 | 0.941 | 0.667 | 0.780 | 1.000 | — | 0.812 |
 | CIRCexplorer2 (de novo) | pe150_higherr | 23 | 23 | 1.000 | 0.479 | 0.648 | 1.000 | — | 0.739 |
 | CIRCexplorer2 (de novo) | pe100_lowerr | 40 | 38 | 0.950 | 0.792 | 0.864 | 1.000 | — | 0.842 |
@@ -369,7 +370,7 @@ italic rows are earlier bsj_finder commits, for comparison):
 | Tool | `pe150_lowerr` | `pe150_lowerr_rev` | `pe150_lowerr_unstr` | `se150_lowerr` | `se150_lowerr_rev` | `se150_lowerr_unstr` |
 |------|---|---|---|---|---|---|
 | bsj_finder | 1.000 | 1.000 | 0.957 | 1.000 | 1.000 | 0.957 |
-| CIRI2 | 0.943 | 0.943 | 0.943 | 0.943 | 0.943 | 0.941 |
+| CIRI2 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |
 | CIRCexplorer2 (de novo) | 0.812 | 0.812 | 0.812 | 0.860 | 0.860 | 0.860 |
 | CIRCexplorer2 (known) | 0.929 | 0.929 | 0.929 | 0.939 | 0.939 | 0.939 |
 | *bsj_finder `f202dce` (no unstranded inference)* | *1.000* | *1.000* | *0.340* | *1.000* | *1.000* | *0.468* |
@@ -394,11 +395,15 @@ Takeaways:
   `se150_lowerr_unstr` gives the same 0.957 and is not cited in that calibration, but a
   freshly seeded unstranded library would be the clean check.
 - **CIRI2** has precision 1.0, recall about 0.69–0.73 (it misses all D, I, L and M-intergenic
-  circles) and near-perfect quantification. Its strand comes from the motif and annotation,
-  so it doesn't depend on the library, but it reports the antisense circles as `+`.
+  circles) and near-perfect quantification. It takes the strand from the splice motif, so its
+  strand is correct for every detected BSJ in every library, whatever the protocol, including
+  the antisense circles (before `9087d87` those had no minus-strand motif and CIRI2 called
+  them `+`).
 - **CIRCexplorer2 de novo** depends heavily on layout: SE recall is about 0.88–0.94, while PE
-  is 0.48–0.79. It reports no junction-read counts, so quantification is `—`. **Known mode** is
-  capped by the annotation, as designed (recall 0.44–0.73).
+  is 0.48–0.79. It reports no junction-read counts, so quantification is `—`, and it reports
+  `+` for all six minus-strand circles. **Known mode** is capped by the annotation, as designed
+  (recall 0.44–0.73), and takes the strand from the host gene, so the two antisense circles
+  come out `+`.
 
 ### Expected behaviour / gotchas
 
@@ -410,9 +415,9 @@ Takeaways:
 - 1–2 read circles sit at the single-read detection limit; that coverage bin is where
   pipelines diverge most.
 - 48/48 recall is the coordinate-matching ceiling (J2 counts once).
-- Strand: CIRI2 and CIRCexplorer2 `known` take the strand from the host gene, so they report
-  the two antisense circles (`BSJ_M_as1/2`) as `+`. CIRCexplorer2's de-novo BED reports `+`
-  for minus-strand circles. A caller that reports the read's alignment strand looks right on
+- Strand: CIRCexplorer2 `known` takes the strand from the host gene, so it reports the two
+  antisense circles (`BSJ_M_as1/2`) as `+`; the motif-based callers (CIRI2, bsj_finder) get
+  them right. CIRCexplorer2's de-novo BED reports `+` for minus-strand circles. A caller that reports the read's alignment strand looks right on
   the forward-stranded base libraries and only fails on `*_rev` / `*_unstr`, so always read
   those against their base library.
 
