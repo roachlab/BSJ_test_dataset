@@ -6,11 +6,13 @@ Every figure is small multiples with a shared library axis, so runs stay readabl
 tools and libraries are added. Strandedness variants (*_rev, *_unstr) sit next to their
 base library. Tools keep a fixed color in every figure.
 
-Outputs (PNG, into --out):
+Outputs (each as PNG and SVG, into --out):
   recall_vs_coverage.png        recall per junction-read coverage bin: library x bin heatmap, one panel per tool
   per_category_recall.png       recall per test-case category (A-M): category x library heatmap, one panel per tool
   precision_recall_f1.png       precision / recall / F1 / specificity: one radar per metric, spokes = libraries
   quantification.png            Spearman of detected vs expected junction reads: radar, spokes = libraries
+  precision_recall_f1_scatter.png
+  quantification_scatter.png    the same two as dot plots: libraries on x, one dot (colour + marker) per tool
   strand_accuracy.png           every true BSJ: correct / wrong / no strand / not detected, one panel per tool
   strand_heatmap.png            the same outcome per individual true BSJ: BSJ x library, one panel per tool
                                 (needs --dataset for the truth list)
@@ -28,12 +30,13 @@ from matplotlib.patches import Patch
 
 COV_BINS = ["1-2", "3-9", "10-49", "50+"]
 
-# Fixed tool identity: color (categorical slots, in order), same in every figure.
+# Fixed tool identity: color (categorical slots, in order) + a marker for the scatter plots.
 TOOL_ORDER = ["bsj_finder", "ciri2", "circexplorer2_bed", "circexplorer2_known"]
 TOOL_LABEL = {"bsj_finder": "bsj_finder", "ciri2": "CIRI2",
               "circexplorer2_bed": "CIRCexplorer2 (de novo)",
               "circexplorer2_known": "CIRCexplorer2 (known)"}
 SLOTS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"]
+MARKERS = ["o", "s", "D", "^", "v", "P", "X", "h"]   # secondary encoding in the scatter plots
 
 INK, INK2, MUTED = "#0b0b0b", "#52514e", "#898781"
 GRID, AXIS, SURFACE = "#e1e0d9", "#c3c2b7", "#fcfcfb"
@@ -81,7 +84,7 @@ def axes_of(runs):
                    key=lambda t: (TOOL_ORDER.index(t) if t in TOOL_ORDER else len(TOOL_ORDER), t))
     libs = sorted({r["library"] for r in runs}, key=lib_key)
     by = {(r["tool"], r["library"]): r for r in runs}
-    style = {t: (SLOTS[i % len(SLOTS)],) for i, t in enumerate(tools)}
+    style = {t: (SLOTS[i % len(SLOTS)], MARKERS[i % len(MARKERS)]) for i, t in enumerate(tools)}
     return tools, libs, by, style
 
 def lib_ticks(ax, libs, axis="x"):
@@ -99,12 +102,16 @@ def group_separators(ax, libs, axis="x"):
         if base[i] != base[i - 1]:
             (ax.axvline if axis == "x" else ax.axhline)(i - 0.5, color=GRID, lw=0.8, zorder=0)
 
-def tool_legend(fig, tools, style, ncol=None, notes=None, fontsize=8):
-    """line-swatch legend in fixed tool order; notes = {tool: text} appended to its label."""
+def tool_legend(fig, tools, style, ncol=None, notes=None, fontsize=8, markers=False):
+    """legend in fixed tool order: line swatches, or marker swatches for the scatter plots;
+    notes = {tool: text} appended to its label."""
     notes = notes or {}
-    handles = [plt.Line2D([], [], color=style[t][0], lw=2.5,
-                          label=TOOL_LABEL.get(t, t) + (f" ({notes[t]})" if t in notes else ""))
-               for t in tools]
+    label = lambda t: TOOL_LABEL.get(t, t) + (f" ({notes[t]})" if t in notes else "")
+    if markers:
+        handles = [plt.Line2D([], [], ls="", marker=style[t][1], ms=7, mfc=style[t][0], mec=SURFACE,
+                              mew=1.2, label=label(t)) for t in tools]
+    else:
+        handles = [plt.Line2D([], [], color=style[t][0], lw=2.5, label=label(t)) for t in tools]
     fig.legend(handles=handles, loc="upper center", ncol=ncol or len(tools), frameon=False,
                bbox_to_anchor=(0.5, 1.0), fontsize=fontsize)
 
@@ -122,7 +129,11 @@ def heat(ax, M, ann, title):
     return im
 
 def save(fig, out, name):
-    fig.savefig(os.path.join(out, name), dpi=150, bbox_inches="tight"); plt.close(fig)
+    """write <name>.png and a vector <name>.svg alongside it."""
+    path = os.path.join(out, name)
+    fig.savefig(path, dpi=150, bbox_inches="tight")
+    fig.savefig(os.path.splitext(path)[0] + ".svg", bbox_inches="tight")
+    plt.close(fig)
 
 # ---------------------------------------------------------------- figures
 def plot_recall_vs_coverage(runs, out):
@@ -222,6 +233,50 @@ def plot_quant(runs, out):
     tool_legend(fig, tools, style, ncol=2, notes=missing)
     fig.tight_layout(rect=(0, 0, 1, 0.9))
     save(fig, out, "quantification.png")
+
+def dot_panel(ax, tools, libs, by, style, metric):
+    """one dot per tool per library (tools side by side within a library); bsj_finder on top."""
+    n = len(tools); w = 0.6
+    for k, t in enumerate(tools):
+        xs, ys = [], []
+        for j, l in enumerate(libs):
+            v = by.get((t, l), {}).get(metric)
+            if _num(v):
+                xs.append(j + (k - (n - 1) / 2) * w / max(n - 1, 1)); ys.append(v)
+        c, m = style[t]
+        ax.scatter(xs, ys, s=34, marker=m, color=c, edgecolors=SURFACE, linewidths=1.0,
+                   zorder=3 + len(tools) - k)
+    ax.set_xlim(-0.6, len(libs) - 0.4)
+    ax.grid(axis="y", color=GRID, lw=0.6); ax.set_axisbelow(True)
+    group_separators(ax, libs)
+
+def plot_prf_scatter(runs, out):
+    tools, libs, by, style = axes_of(runs)
+    metrics = [("precision", "Precision"), ("recall", "Recall"), ("f1", "F1"),
+               ("specificity", "Specificity (decoys rejected)")]
+    fig, axs = plt.subplots(2, 2, figsize=(0.5 * len(libs) * 2 + 2, 7), sharex=True)
+    for ax, (m, title) in zip(axs.ravel(), metrics):
+        dot_panel(ax, tools, libs, by, style, m)
+        ax.set_title(title, loc="left"); ax.set_ylim(-0.03, 1.05)
+    for ax in axs[1]: lib_ticks(ax, libs)
+    tool_legend(fig, tools, style, markers=True)
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    save(fig, out, "precision_recall_f1_scatter.png")
+
+def plot_quant_scatter(runs, out):
+    tools, libs, by, style = axes_of(runs)
+    fig, ax = plt.subplots(figsize=(0.5 * len(libs) + 2, 3.8))
+    dot_panel(ax, tools, libs, by, style, "quant_spearman")
+    vals = [r.get("quant_spearman") for r in runs if _num(r.get("quant_spearman"))]
+    ax.set_ylim(min([0.5] + [v - 0.05 for v in vals]), 1.02)
+    ax.set_ylabel("Spearman r")
+    ax.set_title("Quantification: detected vs expected junction reads", loc="left")
+    lib_ticks(ax, libs)
+    missing = {t: "no read counts reported" for t in tools
+               if not any(_num(by.get((t, l), {}).get("quant_spearman")) for l in libs)}
+    tool_legend(fig, tools, style, ncol=2 if missing else None, notes=missing, markers=True)
+    fig.tight_layout(rect=(0, 0, 1, 0.88))
+    save(fig, out, "quantification_scatter.png")
 
 def plot_strand(runs, out):
     tools, libs, by, _ = axes_of(runs)
@@ -324,13 +379,15 @@ def main():
     plot_category_heatmap(runs, out)
     plot_prf(runs, out)
     plot_quant(runs, out)
+    plot_prf_scatter(runs, out)
+    plot_quant_scatter(runs, out)
     plot_strand(runs, out)
     truth = load_truth(a.dataset)
     if truth:
         plot_strand_heatmap(runs, truth, out)
     else:
         print(f"no truth_bsj.tsv under {a.dataset}/ — skipping strand_heatmap.png")
-    print(f"Wrote {5 + bool(truth)} plots for {len(runs)} run(s) -> {out}/")
+    print(f"Wrote {7 + bool(truth)} plots for {len(runs)} run(s) -> {out}/")
 
 if __name__ == "__main__":
     main()

@@ -38,9 +38,10 @@ def all_eval_jsons():
         j += expand("results/bsj_finder/eval_{lib}.json", lib=LIBS)
     return j
 
-PLOTS = expand("results/plots/{p}.png",
+PLOTS = expand("results/plots/{p}.{ext}", ext=["png", "svg"],
                p=["recall_vs_coverage", "per_category_recall",
-                  "precision_recall_f1", "quantification", "strand_accuracy", "strand_heatmap"])
+                  "precision_recall_f1", "quantification", "strand_accuracy", "strand_heatmap",
+                  "precision_recall_f1_scatter", "quantification_scatter"])
 
 rule all:
     input:
