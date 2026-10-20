@@ -4,13 +4,13 @@ Plot benchmark results produced by evaluate.py (one JSON per tool x library x va
 
 Every figure is small multiples with a shared library axis, so runs stay readable as
 tools and libraries are added. Strandedness variants (*_rev, *_unstr) sit next to their
-base library. Tools keep a fixed color + marker in every figure.
+base library. Tools keep a fixed color in every figure.
 
 Outputs (PNG, into --out):
   recall_vs_coverage.png        recall per junction-read coverage bin: library x bin heatmap, one panel per tool
   per_category_recall.png       recall per test-case category (A-M): category x library heatmap, one panel per tool
-  precision_recall_f1.png       precision / recall / F1 / specificity: one panel per metric, one dot per tool
-  quantification.png            Spearman of detected vs expected junction reads, one dot per tool
+  precision_recall_f1.png       precision / recall / F1 / specificity: one radar per metric, spokes = libraries
+  quantification.png            Spearman of detected vs expected junction reads: radar, spokes = libraries
   strand_accuracy.png           every true BSJ: correct / wrong / no strand / not detected, one panel per tool
   strand_heatmap.png            the same outcome per individual true BSJ: BSJ x library, one panel per tool
                                 (needs --dataset for the truth list)
@@ -28,13 +28,12 @@ from matplotlib.patches import Patch
 
 COV_BINS = ["1-2", "3-9", "10-49", "50+"]
 
-# Fixed tool identity: color (categorical slots, in order) + marker as secondary encoding.
+# Fixed tool identity: color (categorical slots, in order), same in every figure.
 TOOL_ORDER = ["bsj_finder", "ciri2", "circexplorer2_bed", "circexplorer2_known"]
 TOOL_LABEL = {"bsj_finder": "bsj_finder", "ciri2": "CIRI2",
               "circexplorer2_bed": "CIRCexplorer2 (de novo)",
               "circexplorer2_known": "CIRCexplorer2 (known)"}
 SLOTS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"]
-MARKERS = ["o", "s", "D", "^", "v", "P", "X", "h"]
 
 INK, INK2, MUTED = "#0b0b0b", "#52514e", "#898781"
 GRID, AXIS, SURFACE = "#e1e0d9", "#c3c2b7", "#fcfcfb"
@@ -82,7 +81,7 @@ def axes_of(runs):
                    key=lambda t: (TOOL_ORDER.index(t) if t in TOOL_ORDER else len(TOOL_ORDER), t))
     libs = sorted({r["library"] for r in runs}, key=lib_key)
     by = {(r["tool"], r["library"]): r for r in runs}
-    style = {t: (SLOTS[i % len(SLOTS)], MARKERS[i % len(MARKERS)]) for i, t in enumerate(tools)}
+    style = {t: (SLOTS[i % len(SLOTS)],) for i, t in enumerate(tools)}
     return tools, libs, by, style
 
 def lib_ticks(ax, libs, axis="x"):
@@ -100,11 +99,14 @@ def group_separators(ax, libs, axis="x"):
         if base[i] != base[i - 1]:
             (ax.axvline if axis == "x" else ax.axhline)(i - 0.5, color=GRID, lw=0.8, zorder=0)
 
-def tool_legend(fig, tools, style, ncol=None):
-    handles = [plt.Line2D([], [], ls="", marker=style[t][1], ms=7, mfc=style[t][0], mec=SURFACE,
-                          mew=1.2, label=TOOL_LABEL.get(t, t)) for t in tools]
+def tool_legend(fig, tools, style, ncol=None, notes=None, fontsize=8):
+    """line-swatch legend in fixed tool order; notes = {tool: text} appended to its label."""
+    notes = notes or {}
+    handles = [plt.Line2D([], [], color=style[t][0], lw=2.5,
+                          label=TOOL_LABEL.get(t, t) + (f" ({notes[t]})" if t in notes else ""))
+               for t in tools]
     fig.legend(handles=handles, loc="upper center", ncol=ncol or len(tools), frameon=False,
-               bbox_to_anchor=(0.5, 1.0), fontsize=8)
+               bbox_to_anchor=(0.5, 1.0), fontsize=fontsize)
 
 def heat(ax, M, ann, title):
     im = ax.imshow(M, cmap=SEQ, vmin=0, vmax=1, aspect="auto")
@@ -167,49 +169,57 @@ def plot_category_heatmap(runs, out):
     fig.suptitle("Per-category recall (detected / true BSJs)", x=0.02, ha="left", fontsize=10)
     save(fig, out, "per_category_recall.png")
 
-def dot_panel(ax, tools, libs, by, style, metric):
-    n = len(tools); w = 0.6
+def _num(v):
+    return v is not None and not (isinstance(v, float) and np.isnan(v))
+
+RADAR_MIN = 0.25   # radial axis floor (the centre); every current value is above it
+
+def radar_panel(ax, tools, libs, by, style, metric, title, fs=7):
+    """radar: one spoke per library (clockwise from 12 o'clock), one closed outline per tool.
+    Lines only (fills of 4 overlapping tools turn muddy). Radius RADAR_MIN..1; values below
+    the floor are clipped to the centre. The first tool in the fixed order (bsj_finder) is
+    drawn on top. Tools with no value at all for this metric are skipped; a missing single
+    value leaves a gap in that outline. fs = base font size."""
+    ang = np.linspace(0, 2 * np.pi, len(libs), endpoint=False)
+    ax.set_theta_offset(np.pi / 2); ax.set_theta_direction(-1)
     for k, t in enumerate(tools):
-        xs, ys = [], []
-        for j, l in enumerate(libs):
-            v = by.get((t, l), {}).get(metric, np.nan)
-            if v is not None and not (isinstance(v, float) and np.isnan(v)):
-                xs.append(j + (k - (n - 1) / 2) * w / max(n - 1, 1)); ys.append(v)
-        c, m = style[t]
-        ax.scatter(xs, ys, s=34, marker=m, color=c, edgecolors=SURFACE, linewidths=1.0, zorder=3)
-    ax.set_xlim(-0.6, len(libs) - 0.4)
-    ax.grid(axis="y", color=GRID, lw=0.6); ax.set_axisbelow(True)
-    group_separators(ax, libs)
+        v = np.array([by.get((t, l), {}).get(metric) if _num(by.get((t, l), {}).get(metric)) else np.nan
+                      for l in libs], float)
+        if np.isnan(v).all():
+            continue
+        v = np.maximum(v, RADAR_MIN)
+        a, r = np.append(ang, ang[0]), np.append(v, v[0])
+        ax.plot(a, r, color=style[t][0], lw=2, zorder=3 + len(tools) - k)   # earlier tools on top
+    ax.set_xticks(ang); ax.set_xticklabels(libs, fontsize=fs, color=INK2)
+    ax.tick_params(axis="x", pad=6)
+    for lab, th in zip(ax.get_xticklabels(), ang):     # anchor each label on the side away from the ring
+        x = np.sin(th)                                  # clockwise from 12 o'clock: +x is the right half
+        lab.set_horizontalalignment("left" if x > 0.01 else "right" if x < -0.01 else "center")
+    ax.set_ylim(RADAR_MIN, 1); ax.set_yticks([0.25, 0.5, 0.75, 1.0])
+    ax.set_yticklabels(["0.25", "0.5", "0.75", "1"], fontsize=fs - 1, color=MUTED)
+    ax.set_rlabel_position(180 / len(libs))           # radial labels between the first two spokes
+    ax.grid(color=GRID, lw=0.6); ax.spines["polar"].set_color(AXIS)
+    ax.set_title(title, loc="left", pad=18, fontsize=fs + 2)
 
 def plot_prf(runs, out):
     tools, libs, by, style = axes_of(runs)
     metrics = [("precision", "Precision"), ("recall", "Recall"), ("f1", "F1"),
                ("specificity", "Specificity (decoys rejected)")]
-    fig, axs = plt.subplots(2, 2, figsize=(0.5 * len(libs) * 2 + 2, 7), sharex=True)
+    fig, axs = plt.subplots(2, 2, figsize=(16, 14), subplot_kw=dict(projection="polar"))
     for ax, (m, title) in zip(axs.ravel(), metrics):
-        dot_panel(ax, tools, libs, by, style, m)
-        ax.set_title(title, loc="left"); ax.set_ylim(-0.03, 1.05)
-    for ax in axs[1]: lib_ticks(ax, libs)
-    tool_legend(fig, tools, style)
-    fig.tight_layout(rect=(0, 0, 1, 0.95))
+        radar_panel(ax, tools, libs, by, style, m, title, fs=11)
+    tool_legend(fig, tools, style, fontsize=12)
+    fig.tight_layout(rect=(0, 0, 1, 0.96), h_pad=3, w_pad=8)
     save(fig, out, "precision_recall_f1.png")
 
 def plot_quant(runs, out):
     tools, libs, by, style = axes_of(runs)
-    fig, ax = plt.subplots(figsize=(0.5 * len(libs) + 2, 3.8))
-    dot_panel(ax, tools, libs, by, style, "quant_spearman")
-    vals = [r.get("quant_spearman") for r in runs if r.get("quant_spearman") == r.get("quant_spearman")]
-    ax.set_ylim(min([0.5] + [v - 0.05 for v in vals if v is not None]), 1.02)
-    ax.set_ylabel("Spearman r")
-    ax.set_title("Quantification: detected vs expected junction reads", loc="left")
-    lib_ticks(ax, libs)
-    missing = [TOOL_LABEL.get(t, t) for t in tools
-               if all(by.get((t, l), {}).get("quant_spearman") != by.get((t, l), {}).get("quant_spearman")
-                      or by.get((t, l), {}).get("quant_spearman") is None for l in libs)]
-    if missing:
-        ax.text(0.01, 0.04, "no read counts reported: " + ", ".join(missing),
-                transform=ax.transAxes, fontsize=7, color=INK2)
-    tool_legend(fig, tools, style)
+    fig, ax = plt.subplots(figsize=(6.5, 6.8), subplot_kw=dict(projection="polar"))
+    radar_panel(ax, tools, libs, by, style, "quant_spearman",
+                "Quantification: Spearman r, detected vs expected junction reads")
+    missing = {t: "no read counts reported" for t in tools
+               if not any(_num(by.get((t, l), {}).get("quant_spearman")) for l in libs)}
+    tool_legend(fig, tools, style, ncol=2, notes=missing)
     fig.tight_layout(rect=(0, 0, 1, 0.9))
     save(fig, out, "quantification.png")
 
