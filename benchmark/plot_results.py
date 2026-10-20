@@ -11,17 +11,20 @@ Outputs (PNG, into --out):
   per_category_recall.png       recall per test-case category (A-M): category x library heatmap, one panel per tool
   precision_recall_f1.png       precision / recall / F1 / specificity: one panel per metric, one dot per tool
   quantification.png            Spearman of detected vs expected junction reads, one dot per tool
-  strand_accuracy.png           strand of matched calls (correct / wrong / none), one panel per tool
+  strand_accuracy.png           every true BSJ: correct / wrong / no strand / not detected, one panel per tool
+  strand_heatmap.png            the same outcome per individual true BSJ: BSJ x library, one panel per tool
+                                (needs --dataset for the truth list)
 
 Usage:
-  python3 plot_results.py --results results --out results/plots
+  python3 plot_results.py --results results --out results/plots --dataset ../dataset
 """
 import argparse, glob, json, os, re
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.colors import LinearSegmentedColormap, ListedColormap
+from matplotlib.patches import Patch
 
 COV_BINS = ["1-2", "3-9", "10-49", "50+"]
 
@@ -219,31 +222,88 @@ def plot_strand(runs, out):
         ok = np.array([by.get((t, l), {}).get("strand_correct", 0) for l in libs], float)
         bad = np.array([by.get((t, l), {}).get("strand_wrong", 0) for l in libs], float)
         unk = np.array([by.get((t, l), {}).get("strand_unknown", 0) for l in libs], float)
-        tp = ok + bad + unk; tp[tp == 0] = np.nan
+        # denominator is every true BSJ (P), so undetected BSJs show as the empty remainder
+        P = np.array([by.get((t, l), {}).get("P", np.nan) for l in libs], float)
+        miss = P - (ok + bad + unk)
         kw = dict(width=0.72, edgecolor=SURFACE, linewidth=1.0)
-        ax.bar(x, ok / tp, color=GOOD, label="correct strand", **kw)
-        ax.bar(x, bad / tp, bottom=ok / tp, color=CRITICAL, label="wrong strand", **kw)
-        ax.bar(x, unk / tp, bottom=(ok + bad) / tp, color=NONE, label="no strand reported", **kw)
+        ax.bar(x, ok / P, color=GOOD, label="correct strand", **kw)
+        ax.bar(x, bad / P, bottom=ok / P, color=CRITICAL, label="wrong strand", **kw)
+        ax.bar(x, unk / P, bottom=(ok + bad) / P, color=NONE, label="no strand reported", **kw)
+        ax.bar(x, miss / P, bottom=(ok + bad + unk) / P, color=SURFACE, edgecolor=AXIS,
+               linewidth=0.8, width=0.72 - 0.04, label="not detected")
         for j in range(len(libs)):
-            if not np.isnan(tp[j]):
-                ax.text(j, 1.03, f"{ok[j] / tp[j]:.2f}", ha="center", va="bottom", fontsize=6.5, color=INK2)
+            if not np.isnan(P[j]):
+                ax.text(j, 1.03, f"{ok[j]:.0f}/{P[j]:.0f}", ha="center", va="bottom", fontsize=6.5, color=INK2)
         ax.set_ylim(0, 1.18); ax.set_yticks([0, 0.5, 1])
         ax.set_title(TOOL_LABEL.get(t, t), loc="left")
         ax.grid(axis="y", color=GRID, lw=0.6); ax.set_axisbelow(True)
         group_separators(ax, libs)
     lib_ticks(axs[-1, 0], libs)
-    fig.supylabel("fraction of detected BSJs", color=INK2, fontsize=8)
+    fig.supylabel("fraction of true BSJs", color=INK2, fontsize=8)
     h, l = axs[0, 0].get_legend_handles_labels()
-    fig.legend(h, l, loc="upper center", ncol=3, frameon=False, bbox_to_anchor=(0.5, 1.0))
-    fig.suptitle("Declared strand vs truth (labels: fraction correct)", x=0.02, y=1.03,
-                 ha="left", fontsize=10)
+    fig.legend(h, l, loc="upper center", ncol=4, frameon=False, bbox_to_anchor=(0.5, 1.0))
+    fig.suptitle("Declared strand vs truth, over all true BSJs (labels: correct strand / true BSJs)",
+                 x=0.02, y=1.03, ha="left", fontsize=10)
     fig.tight_layout(rect=(0, 0, 1, 0.97))
     save(fig, out, "strand_accuracy.png")
+
+def load_truth(dataset):
+    """[(bsj_id, category, strand)] in truth_bsj.tsv order, or [] if not found."""
+    path = os.path.join(dataset, "truth_bsj.tsv")
+    if not os.path.exists(path):
+        return []
+    with open(path) as fh:
+        hdr = fh.readline().rstrip("\n").split("\t"); ix = {c: i for i, c in enumerate(hdr)}
+        return [(f[ix["bsj_id"]], f[ix["category"]], f[ix["strand"]])
+                for f in (ln.rstrip("\n").split("\t") for ln in fh) if len(f) > 1]
+
+def plot_strand_heatmap(runs, truth, out):
+    """Outcome of every true BSJ in every run. The run JSON lists missed / strand_wrong /
+    strand_unknown ids; every other true BSJ was detected on the correct strand."""
+    tools, libs, by, _ = axes_of(runs)
+    OUTCOMES = [("correct strand", GOOD), ("wrong strand", CRITICAL),
+                ("no strand reported", INK2), ("not detected", "#ecebe6")]
+    cmap = ListedColormap([c for _, c in OUTCOMES])
+    ids = [b for b, _, _ in truth]
+    fig, axs = plt.subplots(1, len(tools), figsize=(0.2 * len(libs) * len(tools) + 3, 0.17 * len(ids) + 2.2),
+                            sharey=True, squeeze=False)
+    for ax, t in zip(axs[0], tools):
+        M = np.full((len(ids), len(libs)), np.nan)
+        for j, l in enumerate(libs):
+            r = by.get((t, l))
+            if r is None: continue
+            miss, bad, unk = set(r.get("missed", [])), set(r.get("strand_wrong_ids", [])), set(r.get("strand_unknown_ids", []))
+            for i, b in enumerate(ids):
+                M[i, j] = 3 if b in miss else 1 if b in bad else 2 if b in unk else 0
+        ax.imshow(M, cmap=cmap, vmin=-0.5, vmax=3.5, aspect="auto", interpolation="nearest")
+        # cell gaps: surface-coloured gridlines between every row and column
+        ax.set_xticks(np.arange(-0.5, len(libs)), minor=True); ax.set_yticks(np.arange(-0.5, len(ids)), minor=True)
+        ax.grid(which="minor", color=SURFACE, lw=1.0); ax.tick_params(which="minor", length=0)
+        cats = [c for _, c, _ in truth]
+        for i in range(1, len(ids)):                   # heavier line between test-case categories
+            if cats[i][0] != cats[i - 1][0]:
+                ax.axhline(i - 0.5, color=INK2, lw=0.6)
+        group_separators(ax, libs)
+        for line in ax.lines: line.set_zorder(3)
+        ax.set_title(TOOL_LABEL.get(t, t), loc="left")
+        for sp in ax.spines.values(): sp.set_visible(False)
+        ax.tick_params(length=0)
+        lib_ticks(ax, libs)
+    axs[0][0].set_yticks(range(len(ids)))
+    axs[0][0].set_yticklabels([f"{b.replace('BSJ_', '')} ({s})" for b, _, s in truth], fontsize=6.5)
+    fig.legend(handles=[Patch(facecolor=c, edgecolor=AXIS if k == 3 else c, label=n)
+                        for k, (n, c) in enumerate(OUTCOMES)],
+               loc="upper center", ncol=4, frameon=False, bbox_to_anchor=(0.5, 1.0))
+    fig.suptitle("Outcome per true BSJ (rows: truth id and strand; lines separate categories A–M)",
+                 x=0.02, y=1.03, ha="left", fontsize=10)
+    fig.tight_layout(rect=(0, 0, 1, 0.97))
+    save(fig, out, "strand_heatmap.png")
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--results", default="results")
     ap.add_argument("--out", default=None)
+    ap.add_argument("--dataset", default="../dataset", help="for truth_bsj.tsv (strand_heatmap)")
     a = ap.parse_args()
     out = a.out or os.path.join(a.results, "plots")
     os.makedirs(out, exist_ok=True)
@@ -255,7 +315,12 @@ def main():
     plot_prf(runs, out)
     plot_quant(runs, out)
     plot_strand(runs, out)
-    print(f"Wrote 5 plots for {len(runs)} run(s) -> {out}/")
+    truth = load_truth(a.dataset)
+    if truth:
+        plot_strand_heatmap(runs, truth, out)
+    else:
+        print(f"no truth_bsj.tsv under {a.dataset}/ — skipping strand_heatmap.png")
+    print(f"Wrote {5 + bool(truth)} plots for {len(runs)} run(s) -> {out}/")
 
 if __name__ == "__main__":
     main()
