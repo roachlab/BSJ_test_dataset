@@ -8,14 +8,16 @@ Outputs (PNG + SVG, into --out):
                             --runtime-genome tree; paired-end and single-end panels
   memory_by_genome_size     peak memory per tool vs genome size: the per-library runs at the
                             --memory-scale library, and the one-off index builds
-A --variant adds another run of one tool (e.g. bsj_finder with different settings) as an extra
-line: same colour as the tool, dashed, hollow markers.
+A --variant adds another run of one tool (e.g. bsj_finder's `fast` preset) as an extra line:
+same colour as the tool, dashed, hollow markers. It names one results tree per genome size, so
+it appears on both plots; --rename relabels the base tool's line to match.
 Numbers also go to <out>/scaling_summary.tsv.
 
 Usage:
   python3 plot_scaling.py --tree results:1.5e6 --tree results_genome_1gbp:1e9 \
       --runtime-genome results_genome_1gbp --dataset ../dataset --out results/plots \
-      --variant "results_genome_1gbp_k21:bsj_finder:bsj_finder (k21 w11)"
+      --rename "bsj_finder=bsj_finder (sensitive)" \
+      --variant "bsj_finder (fast)|bsj_finder|results_k21:1.5e6,results_genome_1gbp_k21:1e9"
 """
 import argparse, os
 import numpy as np
@@ -59,7 +61,7 @@ def legend(fig, variants=()):
     h = [plt.Line2D([], [], color=STYLE[t][0], marker=STYLE[t][1], ms=7, mec=SURFACE, lw=2, label=LABEL[t])
          for t in TOOLS]
     h += [plt.Line2D([], [], color=STYLE[t][0], marker=STYLE[t][1], ms=7, mfc=SURFACE, mec=STYLE[t][0], mew=1.5,
-                     lw=2, ls="--", label=lab) for _, t, lab in variants]
+                     lw=2, ls="--", label=lab) for lab, t, _ in variants]
     fig.legend(handles=h, loc="upper center", ncol=len(h), frameon=False, bbox_to_anchor=(0.5, 1.0))
 
 def main():
@@ -71,11 +73,20 @@ def main():
     ap.add_argument("--dataset", default="../dataset")
     ap.add_argument("--out", required=True)
     ap.add_argument("--variant", action="append", default=[],
-                    help="results_dir:tool:label -- another run of `tool` on the --runtime-genome's genome")
+                    help='"label|tool|dir:genome_bp[,dir:genome_bp...]" -- another run of `tool`, '
+                         "one results tree per genome size")
+    ap.add_argument("--rename", action="append", default=[], help='"tool=label" for a base tool line')
     a = ap.parse_args()
-    variants = [tuple(v.split(":", 2)) for v in a.variant]
-    vdata = {d: per_lib(load_benchmarks(d)) for d, _, _ in variants}
-    vbench = {d: load_benchmarks(d) for d, _, _ in variants}
+    for r in a.rename:
+        t, lab = r.split("=", 1); LABEL[t] = lab
+    variants = []                                       # (label, tool, {dir: genome_bp})
+    for v in a.variant:
+        lab, t, trees_ = v.split("|", 2)
+        variants.append((lab, t, {d: float(sz) for d, sz in (x.rsplit(":", 1) for x in trees_.split(","))}))
+    vbench = {d: load_benchmarks(d) for _, _, tv in variants for d in tv}
+    vdata = {d: per_lib(b) for d, b in vbench.items()}
+    def vtree(tv, size):                                # the variant's tree for one genome size
+        return next((d for d, sz in tv.items() if sz == size), None)
     os.makedirs(a.out, exist_ok=True)
     trees = [(d, float(sz)) for d, sz in (t.rsplit(":", 1) for t in a.tree)]
     scaled = scaled_libraries(a.dataset) or {}
@@ -93,8 +104,9 @@ def main():
                 pts = [(scaled[l] * BASE_READS, agg[(t, l)][key]) for l in libs if (t, l) in agg]
                 if pts:
                     line(ax, t, *zip(*pts))
-            for d, t, _ in variants:
-                pts = [(scaled[l] * BASE_READS, vdata[d][(t, l)][key]) for l in libs if (t, l) in vdata[d]]
+            for _, t, tv in variants:
+                d = vtree(tv, gsize)
+                pts = [(scaled[l] * BASE_READS, vdata[d][(t, l)][key]) for l in libs if d and (t, l) in vdata[d]]
                 if pts:
                     line(ax, t, *zip(*pts), variant=True)
             ax.set_xscale("log"); ax.set_yscale("log")
@@ -104,10 +116,11 @@ def main():
         for l in libs:
             for t in TOOLS:
                 if (t, l) in agg:
-                    rows.append((os.path.basename(a.runtime_genome.rstrip("/")), gsize, t, l, scaled[l] * BASE_READS,
+                    rows.append((os.path.basename(a.runtime_genome.rstrip("/")), gsize, LABEL[t], l, scaled[l] * BASE_READS,
                                  agg[(t, l)]["wall"], agg[(t, l)]["cpu"], agg[(t, l)]["rss"]))
-            for d, t, lab in variants:
-                if (t, l) in vdata[d]:
+            for lab, t, tv in variants:
+                d = vtree(tv, gsize)
+                if d and (t, l) in vdata[d]:
                     x = vdata[d][(t, l)]
                     rows.append((os.path.basename(d.rstrip("/")), gsize, lab, l, scaled[l] * BASE_READS,
                                  x["wall"], x["cpu"], x["rss"]))
@@ -129,23 +142,30 @@ def main():
             for d, (bench, agg, size) in data.items():
                 if lib == "shared":
                     v = bench.get(t, {}).get("shared", {}).get(INDEX[t])
-                    if v: pts.append((size, v["rss"] / 1024)); rows.append((d, size, t, f"index:{INDEX[t]}", 0,
+                    if v: pts.append((size, v["rss"] / 1024)); rows.append((d, size, LABEL[t], f"index:{INDEX[t]}", 0,
                                                                             v["wall"], v["cpu"], v["rss"]))
                 elif (t, lib) in agg:
                     pts.append((size, agg[(t, lib)]["rss"] / 1024))
                     if d != a.runtime_genome:
                         x = agg[(t, lib)]
-                        rows.append((d, size, t, lib, scaled.get(lib, 0) * BASE_READS, x["wall"], x["cpu"], x["rss"]))
+                        rows.append((d, size, LABEL[t], lib, scaled.get(lib, 0) * BASE_READS, x["wall"], x["cpu"], x["rss"]))
             if pts:
                 line(ax, t, *zip(*sorted(pts)))
-        for d, t, lab in variants:          # variants exist on the runtime genome only: one point
-            if lib == "shared":
-                v = vbench[d].get(t, {}).get("shared", {}).get(INDEX[t])
-                if v:
-                    line(ax, t, [gsize], [v["rss"] / 1024], variant=True)
-                    rows.append((d, gsize, lab, f"index:{INDEX[t]}", 0, v["wall"], v["cpu"], v["rss"]))
-            elif (t, lib) in vdata[d]:
-                line(ax, t, [gsize], [vdata[d][(t, lib)]["rss"] / 1024], variant=True)
+        for lab, t, tv in variants:         # one point per genome size the variant was run on
+            pts = []
+            for d, size in tv.items():
+                if lib == "shared":
+                    v = vbench[d].get(t, {}).get("shared", {}).get(INDEX[t])
+                    if v:
+                        pts.append((size, v["rss"] / 1024))
+                        rows.append((d, size, lab, f"index:{INDEX[t]}", 0, v["wall"], v["cpu"], v["rss"]))
+                elif (t, lib) in vdata[d]:
+                    pts.append((size, vdata[d][(t, lib)]["rss"] / 1024))
+                    if size != gsize:
+                        x = vdata[d][(t, lib)]
+                        rows.append((d, size, lab, lib, scaled.get(lib, 0) * BASE_READS, x["wall"], x["cpu"], x["rss"]))
+            if pts:
+                line(ax, t, *zip(*sorted(pts)), variant=True)
         ax.set_xscale("log"); ax.set_ylim(0, None)
         ax.set_xticks(sizes); ax.set_xticklabels([fmt_bp(s) for s in sizes]); ax.minorticks_off()
         ax.set_xlabel("genome size"); style_ax(ax, title)

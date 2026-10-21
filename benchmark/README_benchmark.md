@@ -165,8 +165,20 @@ mostly measures start-up.
   results_genome_1gbp:1e9 --runtime-genome results_genome_1gbp --out results/plots` writes
   `runtime_by_library_size` (wall and CPU time vs reads, log-log, on the 1 Gbp genome) and
   `memory_by_genome_size` (peak memory vs genome size for the x100 runs and the index builds),
-  plus `scaling_summary.tsv`. `--variant "results_genome_1gbp_k21:bsj_finder:bsj_finder (k21 w11)"`
-  adds another run of one tool as a dashed line.
+  plus `scaling_summary.tsv`. bsj_finder is shown for both of its seeding presets: the base trees
+  use `sensitive` (its default), and `--variant` adds `fast` as a dashed line from one results tree
+  per genome size, with `--rename` labelling the base line:
+
+  ```bash
+  python3 plot_scaling.py --tree results:1.5e6 --tree results_genome_1gbp:1e9 \
+      --runtime-genome results_genome_1gbp --dataset ../dataset --out results/plots \
+      --rename "bsj_finder=bsj_finder (sensitive)" \
+      --variant "bsj_finder (fast)|bsj_finder|results_k21:1.5e6,results_genome_1gbp_k21:1e9"
+  ```
+
+  The `fast` trees come from runs with `results=results_k21` / `results_genome_1gbp_k21` and
+  `bsj_finder_config="preset=fast"` (bsj_finder with presets) or, equivalently,
+  `bsj_finder_config="minimap2_k=21 minimap2_w=11"`.
 - **Run one job at a time with the same threads for every tool**, e.g.
   `snakemake --cores 8 --config threads=8`, or the timings measure contention.
 - **Container:** the current `bsj-bench.sif` lacks GNU `time`; bind the host's:
