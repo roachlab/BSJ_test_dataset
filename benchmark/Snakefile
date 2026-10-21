@@ -7,15 +7,40 @@ import os
 configfile: "config.yaml"
 
 DATASET   = config["dataset"]
-GENOME    = os.path.join(DATASET, "genome.fa")
+# genome / results / only: run against another reference (e.g. the 1 Gbp padded genome) into
+# its own results tree, optionally on a subset of libraries:
+#   --config genome=../dataset/genomes/genome_1gbp.fa results=results_genome_1gbp \
+#            'only=["pe150_lowerr_x100","se150_lowerr_x100"]'
+GENOME    = config.get("genome") or os.path.join(DATASET, "genome.fa")
+RES       = config.get("results", "results")
 GTF       = os.path.join(DATASET, "annotation.gtf")
 THREADS   = config["threads"]
 BASE_TOL  = config["base_tol"]
 LIBS      = config["libraries"]
+if config.get("only"):
+    _unknown = set(config["only"]) - set(LIBS)
+    if _unknown:
+        raise ValueError(f"only= names unknown libraries: {sorted(_unknown)}")
+    LIBS = {l: LIBS[l] for l in config["only"]}
+else:                                   # big scaled libraries run only when asked for by name
+    LIBS = {l: L for l, L in LIBS.items() if not L.get("scaled_only")}
+# optional libraries (e.g. the 100x scaled set) are dropped when their reads were not generated
+for _lib, _L in list(LIBS.items()):
+    _files = [_L["r1"]] + ([_L["r2"]] if _L["type"] == "pe" else [])
+    if _L.get("optional") and not all(os.path.exists(os.path.join(DATASET, f)) for f in _files):
+        print(f"skipping optional library {_lib}: reads not found (python3 generate_dataset.py --scaled)")
+        del LIBS[_lib]
 TOOLS     = config["tools"]
 CIRI2     = config["ciri2_path"]
 BSJ_FINDER = config.get("bsj_finder_dir", "../bsj_finder")   # bsj_finder repo root (working dir = benchmark/)
 MERGE_TOL  = config.get("bsj_finder_merge_tol", 5)
+# extra key=value settings passed to bsj_finder's own --config (index and detection runs), e.g.
+#   bsj_finder_config="minimap2_k=21 minimap2_w=11"   (the sr preset, for large genomes)
+BF_EXTRA   = config.get("bsj_finder_config", "")
+# GNU time around each tool's main command: one line per command, appended to the rule's
+# log.time as  wall_s  user_s  sys_s  max_rss_kb  (CPU and RSS include child processes; RSS is
+# the largest single process). Exact even for sub-second steps, unlike sampled benchmarks.
+TIME = config.get("time_bin", "/usr/bin/time") + r" -f '%e\t%U\t%S\t%M' -a -o"
 
 wildcard_constraints:
     lib = "|".join(LIBS.keys())
@@ -30,73 +55,90 @@ def reads(lib):
 def all_eval_jsons():
     j = []
     if "circexplorer2" in TOOLS:
-        j += expand("results/circexplorer2/eval_{lib}_denovo.json", lib=LIBS)
-        j += expand("results/circexplorer2/eval_{lib}_known.json",  lib=LIBS)
+        j += expand(RES + "/circexplorer2/eval_{lib}_denovo.json", lib=LIBS)
+        j += expand(RES + "/circexplorer2/eval_{lib}_known.json",  lib=LIBS)
     if "ciri2" in TOOLS:
-        j += expand("results/ciri2/eval_{lib}.json", lib=LIBS)
+        j += expand(RES + "/ciri2/eval_{lib}.json", lib=LIBS)
     if "bsj_finder" in TOOLS:
-        j += expand("results/bsj_finder/eval_{lib}.json", lib=LIBS)
+        j += expand(RES + "/bsj_finder/eval_{lib}.json", lib=LIBS)
     return j
 
-PLOTS = expand("results/plots/{p}.{ext}", ext=["png", "svg"],
+PLOTS = expand(RES + "/plots/{p}.{ext}", ext=["png", "svg"],
                p=["recall_vs_coverage", "per_category_recall",
                   "precision_recall_f1", "quantification", "strand_accuracy", "strand_heatmap",
-                  "precision_recall_f1_scatter", "quantification_scatter"])
+                  "precision_recall_f1_scatter", "quantification_scatter", "runtime"])
 
 rule all:
     input:
-        "results/summary.tsv",
+        RES + "/summary.tsv",
         PLOTS
+
+# Every tool rule times its main command with GNU time (see TIME) into
+# results/timing/<tool>/<lib>.<rule>.tsv (one-off index builds: shared.<rule>.tsv), which
+# plot_results.py turns into runtime.png / runtime_summary.tsv. For comparable numbers run one
+# job at a time with the same thread count for every tool (--cores == threads). In the
+# container, bind the host's GNU time if the image lacks it: -B /usr/bin/time:/usr/bin/time
 
 # ======================================================================
 # Shared references
 # ======================================================================
 rule star_index:
+    log: time=RES + "/timing/circexplorer2/shared.star_index.tsv"
     input: fa=GENOME, gtf=GTF
-    output: directory("results/star_index")
+    output: directory(RES + "/star_index")
+    params: time=TIME
     threads: THREADS
     shell:
         r"""
+        : > {log.time}
         mkdir -p {output}
         GLEN=$(grep -v '>' {input.fa} | tr -d '\n' | wc -c)
         SAIDX=$(python3 -c "import math;print(min(14,int(math.log2($GLEN)/2-1)))")
-        STAR --runMode genomeGenerate --genomeDir {output} \
+        {params.time} {log.time} STAR --runMode genomeGenerate --genomeDir {output} \
              --genomeFastaFiles {input.fa} \
              --genomeSAindexNbases $SAIDX --runThreadN {threads}
         """
 
 rule gtf_to_ref:
+    log: time=RES + "/timing/circexplorer2/shared.gtf_to_ref.tsv"
     input: gtf=GTF
-    output: ref="results/circexplorer2/ref.txt"
+    output: ref=RES + "/circexplorer2/ref.txt"
+    params: time=TIME
     shell:
         r"""
-        mkdir -p results/circexplorer2
-        gtfToGenePred -genePredExt -geneNameAsName2 {input.gtf} results/circexplorer2/tmp.genePred
+        : > {log.time}
+        mkdir -p {RES}/circexplorer2
+        {params.time} {log.time} gtfToGenePred -genePredExt -geneNameAsName2 {input.gtf} {RES}/circexplorer2/tmp.genePred
         awk 'BEGIN{{OFS="\t"}}{{print $12,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10}}' \
-            results/circexplorer2/tmp.genePred > {output.ref}
+            {RES}/circexplorer2/tmp.genePred > {output.ref}
         """
 
 rule bwa_index:
+    log: time=RES + "/timing/ciri2/shared.bwa_index.tsv"
     input: fa=GENOME
     output: GENOME + ".bwt"
-    shell: "bwa index {input.fa}"
+    params: time=TIME
+    shell: ": > {log.time}; {params.time} {log.time} bwa index {input.fa}"
 
 # ======================================================================
 # CIRCexplorer2  (STAR chimeric -> parse -> annotate)
 # ======================================================================
 rule star_align:
+    log: time=RES + "/timing/circexplorer2/{lib}.star_align.tsv"
     input:
-        idx="results/star_index",
+        idx=RES + "/star_index",
         reads=lambda wc: reads(wc.lib)
     output:
-        chim="results/circexplorer2/{lib}.Chimeric.out.junction"
+        chim=RES + "/circexplorer2/{lib}.Chimeric.out.junction"
     params:
         overhang=lambda wc: LIBS[wc.lib]["overhang"],
-        pfx="results/circexplorer2/{lib}."
+        pfx=RES + "/circexplorer2/{lib}.",
+        time=TIME
     threads: THREADS
     shell:
         r"""
-        STAR --runThreadN {threads} --genomeDir {input.idx} \
+        : > {log.time}
+        {params.time} {log.time} STAR --runThreadN {threads} --genomeDir {input.idx} \
              --readFilesIn {input.reads} --readFilesCommand zcat \
              --chimSegmentMin 10 --chimJunctionOverhangMin 10 --chimOutType Junctions \
              --chimScoreMin 1 --alignSJoverhangMin 8 \
@@ -104,91 +146,128 @@ rule star_align:
         """
 
 rule circexplorer2_parse:
-    input: chim="results/circexplorer2/{lib}.Chimeric.out.junction"
-    output: bed="results/circexplorer2/{lib}.bsj.bed"
-    shell: "CIRCexplorer2 parse -t STAR {input.chim} -b {output.bed}"
+    log: time=RES + "/timing/circexplorer2/{lib}.circexplorer2_parse.tsv"
+    input: chim=RES + "/circexplorer2/{lib}.Chimeric.out.junction"
+    output: bed=RES + "/circexplorer2/{lib}.bsj.bed"
+    params: time=TIME
+    shell: ": > {log.time}; {params.time} {log.time} CIRCexplorer2 parse -t STAR {input.chim} -b {output.bed}"
 
 rule circexplorer2_annotate:
+    log: time=RES + "/timing/circexplorer2/{lib}.circexplorer2_annotate.tsv"
     input:
-        bed="results/circexplorer2/{lib}.bsj.bed",
-        ref="results/circexplorer2/ref.txt",
+        bed=RES + "/circexplorer2/{lib}.bsj.bed",
+        ref=RES + "/circexplorer2/ref.txt",
         fa=GENOME
-    output: known="results/circexplorer2/{lib}.circ_known.txt"
+    output: known=RES + "/circexplorer2/{lib}.circ_known.txt"
+    params: time=TIME
     shell:
         r"""
-        CIRCexplorer2 annotate -r {input.ref} -g {input.fa} -b {input.bed} -o {output.known} || true
+        : > {log.time}
+        {params.time} {log.time} CIRCexplorer2 annotate -r {input.ref} -g {input.fa} -b {input.bed} -o {output.known} || true
         touch {output.known}
         """
 
 rule eval_circexplorer2_denovo:
-    input: calls="results/circexplorer2/{lib}.bsj.bed"
-    output: "results/circexplorer2/eval_{lib}_denovo.json"
+    input: calls=RES + "/circexplorer2/{lib}.bsj.bed"
+    output: RES + "/circexplorer2/eval_{lib}_denovo.json"
     params: tol=BASE_TOL, ds=DATASET
     shell:
         "python3 evaluate.py --tool circexplorer2_bed --calls {input.calls} "
         "--dataset {params.ds} --library {wildcards.lib} --base-tol {params.tol} "
-        "--out-prefix results/circexplorer2/eval_{wildcards.lib}_denovo"
+        "--out-prefix {RES}/circexplorer2/eval_{wildcards.lib}_denovo"
 
 rule eval_circexplorer2_known:
-    input: calls="results/circexplorer2/{lib}.circ_known.txt"
-    output: "results/circexplorer2/eval_{lib}_known.json"
+    input: calls=RES + "/circexplorer2/{lib}.circ_known.txt"
+    output: RES + "/circexplorer2/eval_{lib}_known.json"
     params: tol=BASE_TOL, ds=DATASET
     shell:
         "python3 evaluate.py --tool circexplorer2_known --calls {input.calls} "
         "--dataset {params.ds} --library {wildcards.lib} --base-tol {params.tol} "
-        "--out-prefix results/circexplorer2/eval_{wildcards.lib}_known"
+        "--out-prefix {RES}/circexplorer2/eval_{wildcards.lib}_known"
 
 # ======================================================================
 # CIRI2  (BWA-MEM -> CIRI2.pl)
 # ======================================================================
 rule bwa_mem:
+    log: time=RES + "/timing/ciri2/{lib}.bwa_mem.tsv"
     input:
         fa=GENOME, bwt=GENOME + ".bwt",
         reads=lambda wc: reads(wc.lib)
-    output: sam=temp("results/ciri2/{lib}.sam")
+    output: sam=temp(RES + "/ciri2/{lib}.sam")
+    params: time=TIME
     threads: THREADS
     shell:
-        "mkdir -p results/ciri2 && "
-        "bwa mem -t {threads} -T 19 {input.fa} {input.reads} > {output.sam}"
+        "mkdir -p {RES}/ciri2 && : > {log.time} && "
+        "{params.time} {log.time} bwa mem -t {threads} -T 19 {input.fa} {input.reads} > {output.sam}"
 
 rule ciri2:
+    log: time=RES + "/timing/ciri2/{lib}.ciri2.tsv"
     input:
-        sam="results/ciri2/{lib}.sam",
+        sam=RES + "/ciri2/{lib}.sam",
         fa=GENOME, gtf=GTF
-    output: ciri="results/ciri2/{lib}.ciri"
-    params: ciri2=CIRI2
+    output: ciri=RES + "/ciri2/{lib}.ciri"
+    params: ciri2=CIRI2, time=TIME
     threads: THREADS
     shell:
         r"""
+        : > {log.time}
         CIRI2BIN=$(command -v {params.ciri2} || echo {params.ciri2})
-        perl "$CIRI2BIN" -I {input.sam} -O {output.ciri} -F {input.fa} -A {input.gtf} -T {threads}
+        {params.time} {log.time} perl "$CIRI2BIN" -I {input.sam} -O {output.ciri} -F {input.fa} -A {input.gtf} -T {threads}
         """
 
 rule eval_ciri2:
-    input: calls="results/ciri2/{lib}.ciri"
-    output: "results/ciri2/eval_{lib}.json"
+    input: calls=RES + "/ciri2/{lib}.ciri"
+    output: RES + "/ciri2/eval_{lib}.json"
     params: tol=BASE_TOL, ds=DATASET
     shell:
         "python3 evaluate.py --tool ciri2 --calls {input.calls} "
         "--dataset {params.ds} --library {wildcards.lib} --base-tol {params.tol} "
-        "--out-prefix results/ciri2/eval_{wildcards.lib}"
+        "--out-prefix {RES}/ciri2/eval_{wildcards.lib}"
 
 # ======================================================================
 # bsj_finder  (the real pipeline, driven to its detection target only)
 # ======================================================================
-rule bsj_finder_detect:
-    input:
-        reads=lambda wc: reads(wc.lib)
-    output:
-        tsv="results/bsj_finder/{lib}.bsj_cor.tsv.gz"
-    params:
-        genome=GENOME, gtf=GTF, bfdir=BSJ_FINDER
+# One-off minimap2 index, built by bsj_finder's own pipeline (its minimap2_index rule) into a
+# shared outdir and linked into every library's work dir, so -- like the STAR and BWA indexes --
+# it is timed once instead of inside every library run. bsj_finder insists on a read directory
+# with samples, so the shared run is pointed at the small se150_lowerr library (never processed:
+# the only target is the index).
+rule bsj_finder_index:
+    log: time=RES + "/timing/bsj_finder/shared.bsj_finder_index.tsv"
+    input: fa=GENOME, reads=os.path.join(DATASET, "reads_se150_lowerr.fastq.gz")
+    output: mmi=RES + "/bsj_finder/shared/ref/genome.mmi"
+    params: bfdir=BSJ_FINDER, time=TIME
     threads: THREADS
     shell:
         r"""
-        mkdir -p results/bsj_finder
-        RDIR=results/bsj_finder/reads/{wildcards.lib}
-        WORK=results/bsj_finder/work/{wildcards.lib}
+        : > {log.time}
+        SH={RES}/bsj_finder/shared
+        mkdir -p "$SH/reads"
+        ln -sf "$(cd "$(dirname {input.reads})" && pwd)/$(basename {input.reads})" "$SH/reads/index_only.fastq.gz"
+        BFDIR=$(cd {params.bfdir} && pwd)
+        GEN=$(cd "$(dirname {input.fa})" && pwd)/$(basename {input.fa})
+        SH_ABS=$(cd "$SH" && pwd)
+        {params.time} {log.time} snakemake -s "$BFDIR/Snakefile" -d "$BFDIR" --cores {threads} --use-conda \
+            --config readDirectory="$SH_ABS/reads" genome="$GEN" outdir="$SH_ABS" {BF_EXTRA} \
+            -- "$SH_ABS/ref/genome.mmi"
+        """
+
+rule bsj_finder_detect:
+    log: time=RES + "/timing/bsj_finder/{lib}.bsj_finder_detect.tsv"
+    input:
+        reads=lambda wc: reads(wc.lib),
+        mmi=RES + "/bsj_finder/shared/ref/genome.mmi"
+    output:
+        tsv=RES + "/bsj_finder/{lib}.bsj_cor.tsv.gz"
+    params:
+        genome=GENOME, gtf=GTF, bfdir=BSJ_FINDER, time=TIME
+    threads: THREADS
+    shell:
+        r"""
+        : > {log.time}
+        mkdir -p {RES}/bsj_finder
+        RDIR={RES}/bsj_finder/reads/{wildcards.lib}
+        WORK={RES}/bsj_finder/work/{wildcards.lib}
         rm -rf "$RDIR"; mkdir -p "$RDIR" "$WORK"
         set -- {input.reads}
         if [ "$#" -eq 1 ]; then
@@ -205,38 +284,41 @@ rule bsj_finder_detect:
         GTF_ABS=$(cd "$(dirname {params.gtf})" && pwd)/$(basename {params.gtf})   # host-gene strand fallback (unstranded libraries)
         RDIR_ABS=$(cd "$RDIR" && pwd)
         WORK_ABS=$(cd "$WORK" && pwd)
-        snakemake -s "$BFDIR/Snakefile" -d "$BFDIR" --cores {threads} --use-conda \
-            --config readDirectory="$RDIR_ABS" genome="$GEN" annotation="$GTF_ABS" outdir="$WORK_ABS" \
+        mkdir -p "$WORK_ABS/ref"                       # reuse the shared index (see bsj_finder_index)
+        ln -sf "$(cd "$(dirname {input.mmi})" && pwd)/genome.mmi" "$WORK_ABS/ref/genome.mmi"
+        {params.time} {log.time} snakemake -s "$BFDIR/Snakefile" -d "$BFDIR" --cores {threads} --use-conda \
+            --config readDirectory="$RDIR_ABS" genome="$GEN" annotation="$GTF_ABS" outdir="$WORK_ABS" {BF_EXTRA} \
             -- "$WORK_ABS/bsj_results/{wildcards.lib}.bsj_cor.tsv.gz"
         cp "$WORK_ABS/bsj_results/{wildcards.lib}.bsj_cor.tsv.gz" {output.tsv}
         """
 
 rule bsj_finder_bed:
-    input: tsv="results/bsj_finder/{lib}.bsj_cor.tsv.gz"
-    output: bed="results/bsj_finder/{lib}.bsj.bed"
-    params: tol=MERGE_TOL
+    log: time=RES + "/timing/bsj_finder/{lib}.bsj_finder_bed.tsv"
+    input: tsv=RES + "/bsj_finder/{lib}.bsj_cor.tsv.gz"
+    output: bed=RES + "/bsj_finder/{lib}.bsj.bed"
+    params: tol=MERGE_TOL, time=TIME
     shell:
-        "python3 bsj_finder_to_bed.py --in {input.tsv} --out {output.bed} --merge-tol {params.tol}"
+        ": > {log.time}; {params.time} {log.time} python3 bsj_finder_to_bed.py --in {input.tsv} --out {output.bed} --merge-tol {params.tol}"
 
 rule eval_bsj_finder:
-    input: calls="results/bsj_finder/{lib}.bsj.bed"
-    output: "results/bsj_finder/eval_{lib}.json"
+    input: calls=RES + "/bsj_finder/{lib}.bsj.bed"
+    output: RES + "/bsj_finder/eval_{lib}.json"
     params: tol=BASE_TOL, ds=DATASET
     shell:
         "python3 evaluate.py --tool bed --tool-name bsj_finder --calls {input.calls} "
         "--dataset {params.ds} --library {wildcards.lib} --base-tol {params.tol} "
-        "--out-prefix results/bsj_finder/eval_{wildcards.lib}"
+        "--out-prefix {RES}/bsj_finder/eval_{wildcards.lib}"
 
 # ======================================================================
 # Aggregate + plot
 # ======================================================================
 rule combine:
     input: all_eval_jsons()
-    output: "results/summary.tsv"
-    shell: "python3 combine_results.py results"
+    output: RES + "/summary.tsv"
+    shell: "python3 combine_results.py {RES}"
 
 rule plots:
     input: all_eval_jsons()
     output: PLOTS
     params: ds=DATASET
-    shell: "python3 plot_results.py --results results --out results/plots --dataset {params.ds}"
+    shell: "python3 plot_results.py --results {RES} --out {RES}/plots --dataset {params.ds}"

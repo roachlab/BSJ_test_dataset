@@ -7,7 +7,11 @@ Produces a small, fully-labelled dataset for validating circRNA detection pipeli
   - annotation.gtf       gene models (with deliberate omissions)
   - reads_*.fastq.gz     {PE, SE} x {150, 100} bp x {low, high} error = 8 forward-stranded
                          libraries, plus 4 reverse/unstranded variants of pe150/se150_lowerr
-  - libraries.tsv        per-library layout, read length, error model, strandedness
+  - libraries.tsv        per-library layout, read length, error model, strandedness, scale
+  - scaled/              100x / 1000x / 10000x-read libraries for runtime benchmarking
+                         (only with --scaled; git-ignored)
+  - genomes/             filler-padded genomes, e.g. 1 Gbp (only with --padded-genomes;
+                         git-ignored)
   - truth_bsj.tsv/.bed   true back-splice junctions
   - truth_bsj_sequences.fa
   - truth_negatives.tsv  decoy loci (expected: no circle call)
@@ -17,7 +21,7 @@ Produces a small, fully-labelled dataset for validating circRNA detection pipeli
 Everything is driven by a single seeded RNG -> fully reproducible.
 """
 
-import os, gzip, random, textwrap
+import os, sys, gzip, random, textwrap, hashlib, shutil, multiprocessing
 
 SEED = 20260624
 rng = random.Random(SEED)
@@ -522,21 +526,22 @@ def crosses_junction(seq, start, length):
     L = len(seq)
     return ((start + length) // L) - (start // L) >= 1 if L else False
 
-def apply_errors(seq, sub_rate, indel_rate, want_len):
+def apply_errors(seq, sub_rate, indel_rate, want_len, R=None):
+    R = R or rng
     out = []
     i = 0
     while len(out) < want_len and i < len(seq):
         b = seq[i]
-        r = rng.random()
+        r = R.random()
         if indel_rate and r < indel_rate / 2:           # insertion
-            out.append(rng.choice(BASES)); continue     # don't advance i
+            out.append(R.choice(BASES)); continue     # don't advance i
         elif indel_rate and r < indel_rate:             # deletion
             i += 1; continue
-        if rng.random() < sub_rate:
-            b = rng.choice([x for x in BASES if x != b])
+        if R.random() < sub_rate:
+            b = R.choice([x for x in BASES if x != b])
         out.append(b); i += 1
     while len(out) < want_len:                            # pad if we ran short
-        out.append(rng.choice(BASES))
+        out.append(R.choice(BASES))
     return "".join(out[:want_len])
 
 # (tag, is_paired, read_len, sub_rate, indel_rate)
@@ -572,15 +577,44 @@ STRAND_VARIANTS = [
 ]
 strand_rng = random.Random(SEED + 1)   # separate stream, so the base libraries stay byte-identical
 
+# Scaled libraries for runtime benchmarking: the same truth with every read count multiplied,
+# so runtime reflects real work rather than tool start-up (x100 ~ 357k, x1000 ~ 3.6M,
+# x10000 ~ 36M reads / pairs). Reads are not listed in read_origin.tsv. Written to
+# dataset/scaled/ only by `generate_dataset.py --scaled` (git-ignored).
+# Each library is rendered as independent chunks of SCALE_CHUNK x the base read counts, each
+# with its own seed (from SEED, library and chunk index), in parallel, then concatenated --
+# deterministic regardless of the number of worker processes; base libraries are untouched.
+# (tag, base_library, scale)
+SCALED_LIBS = [
+    (f"{lay}150_lowerr_x{k}", f"{lay}150_lowerr", k)
+    for k in (100, 1000, 10000) for lay in ("pe", "se")
+]
+SCALED_OUT = os.path.join(OUT, "scaled")
+SCALE_CHUNK = 100
+
+# Filler-padded genomes for runtime benchmarking against genome size: the three real contigs
+# unchanged (so reads, truth and annotation stay valid) plus random filler contigs (chrF001...,
+# 10 Mbp each, ~45% GC like the background) up to the target size. Written to
+# dataset/genomes/<name>.fa only by `generate_dataset.py --padded-genomes` (git-ignored).
+# (name, total_size_bp)
+PADDED_GENOMES = [("genome_1gbp", 1_000_000_000)]
+GENOMES_OUT = os.path.join(OUT, "genomes")
+FILLER_CONTIG = 10_000_000
+
 origin_rows = []   # (read_id, library, origin, kind, spans, role, note)
 
-def emit_fastq():
-    for libtag, is_pe, rlen, sub, indel in LIBS:
+def emit_fastq(libs=None, out_dir=None, scale=1, R=None, origins=None):
+    """Render read_jobs into FASTQs. Defaults = the base libraries with the global R.
+    scale multiplies every job's read count (expected reads scale with it); R / origins let
+    scaled libraries use their own RNG stream and keep their reads out of read_origin.tsv."""
+    libs, out_dir, R = libs or LIBS, out_dir or OUT, R or rng
+    origins = origin_rows if origins is None else origins
+    for libtag, is_pe, rlen, sub, indel in libs:
         if is_pe:
-            f1 = gzip.open(os.path.join(OUT, f"reads_{libtag}_R1.fastq.gz"), "wt")
-            f2 = gzip.open(os.path.join(OUT, f"reads_{libtag}_R2.fastq.gz"), "wt")
+            f1 = gzip.open(os.path.join(out_dir, f"reads_{libtag}_R1.fastq.gz"), "wt")
+            f2 = gzip.open(os.path.join(out_dir, f"reads_{libtag}_R2.fastq.gz"), "wt")
         else:
-            f1 = gzip.open(os.path.join(OUT, f"reads_{libtag}.fastq.gz"), "wt")
+            f1 = gzip.open(os.path.join(out_dir, f"reads_{libtag}.fastq.gz"), "wt")
             f2 = None
         counter = 0
         def write_pair(rid, s1, s2):
@@ -595,65 +629,117 @@ def emit_fastq():
             if len(seq) < 20:
                 continue
             if job["kind"] == "circle":
-                njunc, nbody = job["n_junction"], job["n_body"]
+                njunc, nbody = job["n_junction"] * scale, job["n_body"] * scale
                 short_circle = len(seq) < rlen
                 for k in range(njunc):
                     counter += 1
                     rid = f"{libtag}:{job['origin']}:J{k}"
                     if short_circle:
-                        start = rng.randrange(len(seq))
+                        start = R.randrange(len(seq))
                     else:
-                        anchor = rng.choice([5, 6, 7, 8] + list(range(15, min(rlen-15, len(seq)-15))))
+                        anchor = R.choice([5, 6, 7, 8] + list(range(15, min(rlen-15, len(seq)-15))))
                         start = (len(seq) - anchor) % len(seq)
                     raw1 = circ_read(seq, start, rlen + 8)
-                    s1 = apply_errors(raw1, sub, indel, rlen)
+                    s1 = apply_errors(raw1, sub, indel, rlen, R)
                     s2 = ""
                     if is_pe:
                         raw2 = circ_read(seq, start + FRAG - rlen, rlen + 8)
-                        s2 = revcomp(apply_errors(raw2, sub, indel, rlen))
+                        s2 = revcomp(apply_errors(raw2, sub, indel, rlen, R))
                     write_pair(rid, s1, s2)
-                    origin_rows.append((rid, libtag, job["origin"], "circle_junction", "TRUE", job["role"], job["note"]))
+                    origins.append((rid, libtag, job["origin"], "circle_junction", "TRUE", job["role"], job["note"]))
                 for k in range(nbody):
                     if short_circle:
                         break
                     counter += 1
                     rid = f"{libtag}:{job['origin']}:B{k}"
-                    start = rng.randrange(0, max(1, len(seq) - rlen))
-                    s1 = apply_errors(seq[start:start+rlen+8], sub, indel, rlen)
+                    start = R.randrange(0, max(1, len(seq) - rlen))
+                    s1 = apply_errors(seq[start:start+rlen+8], sub, indel, rlen, R)
                     s2 = ""
                     if is_pe:
                         b2 = max(0, start + FRAG - rlen)
-                        s2 = revcomp(apply_errors(seq[b2:b2+rlen+8], sub, indel, rlen))
+                        s2 = revcomp(apply_errors(seq[b2:b2+rlen+8], sub, indel, rlen, R))
                     write_pair(rid, s1, s2)
-                    origin_rows.append((rid, libtag, job["origin"], "circle_body", "FALSE", job["role"], job["note"]))
+                    origins.append((rid, libtag, job["origin"], "circle_body", "FALSE", job["role"], job["note"]))
             elif job["kind"] == "linear":
-                n = job["n"]
+                n = job["n"] * scale
                 for k in range(n):
                     counter += 1
                     rid = f"{libtag}:{job['origin']}:L{k}"
-                    start = rng.randrange(0, max(1, len(seq) - rlen))
-                    s1 = apply_errors(seq[start:start+rlen+8], sub, indel, rlen)
+                    start = R.randrange(0, max(1, len(seq) - rlen))
+                    s1 = apply_errors(seq[start:start+rlen+8], sub, indel, rlen, R)
                     s2 = ""
                     if is_pe:
                         b2 = max(0, start + FRAG - rlen)
-                        s2 = revcomp(apply_errors(seq[b2:b2+rlen+8], sub, indel, rlen))
+                        s2 = revcomp(apply_errors(seq[b2:b2+rlen+8], sub, indel, rlen, R))
                     write_pair(rid, s1, s2)
-                    origin_rows.append((rid, libtag, job["origin"], "linear", str(job["spans"]).upper(), job["role"], job["note"]))
+                    origins.append((rid, libtag, job["origin"], "linear", str(job["spans"]).upper(), job["role"], job["note"]))
             elif job["kind"] == "chimera":
-                n = job["n"]
+                n = job["n"] * scale
                 for k in range(n):
                     counter += 1
                     rid = f"{libtag}:{job['origin']}:C{k}"
-                    start = rng.randrange(0, max(1, len(seq) - rlen))
-                    s1 = apply_errors(seq[start:start+rlen+8], sub, indel, rlen)
+                    start = R.randrange(0, max(1, len(seq) - rlen))
+                    s1 = apply_errors(seq[start:start+rlen+8], sub, indel, rlen, R)
                     s2 = ""
                     if is_pe:
                         b2 = max(0, start + FRAG - rlen)
-                        s2 = revcomp(apply_errors(seq[b2:b2+rlen+8], sub, indel, rlen))
+                        s2 = revcomp(apply_errors(seq[b2:b2+rlen+8], sub, indel, rlen, R))
                     write_pair(rid, s1, s2)
-                    origin_rows.append((rid, libtag, job["origin"], "chimera", "TRUE", job["role"], job["note"]))
+                    origins.append((rid, libtag, job["origin"], "chimera", "TRUE", job["role"], job["note"]))
         f1.close()
         if f2: f2.close()
+
+def chunk_seed(*parts):
+    """stable 64-bit seed (Python's hash() is salted per process)"""
+    return int.from_bytes(hashlib.sha256(":".join(map(str, parts)).encode()).digest()[:8], "big")
+
+def _render_chunk(job):
+    tag, spec, i, tmp = job
+    # chunk index in the library tag keeps read IDs unique after concatenation
+    emit_fastq(libs=[(f"{tag}.c{i:04d}", *spec)], out_dir=tmp, scale=SCALE_CHUNK,
+               R=random.Random(chunk_seed(SEED, tag, i)), origins=[])
+
+def emit_scaled(workers=None):
+    spec = {t: (pe, rlen, sub, indel) for t, pe, rlen, sub, indel in LIBS}
+    os.makedirs(SCALED_OUT, exist_ok=True)
+    tmp = os.path.join(SCALED_OUT, "_chunks")
+    os.makedirs(tmp, exist_ok=True)
+    jobs = [(tag, spec[base], i, tmp) for tag, base, k in SCALED_LIBS for i in range(k // SCALE_CHUNK)]
+    workers = workers or min(32, os.cpu_count() or 1)
+    print(f"rendering {len(jobs)} chunks ({SCALE_CHUNK}x each) on {workers} processes ...")
+    with multiprocessing.get_context("fork").Pool(workers) as pool:
+        for n, _ in enumerate(pool.imap_unordered(_render_chunk, jobs), 1):
+            if n % 20 == 0 or n == len(jobs):
+                print(f"  {n}/{len(jobs)} chunks", flush=True)
+    for tag, base, k in SCALED_LIBS:                   # gzip members concatenate into a valid .gz
+        is_pe = spec[base][0]
+        for sfx in (["_R1", "_R2"] if is_pe else [""]):
+            with open(os.path.join(SCALED_OUT, f"reads_{tag}{sfx}.fastq.gz"), "wb") as out:
+                for i in range(k // SCALE_CHUNK):
+                    part = os.path.join(tmp, f"reads_{tag}.c{i:04d}{sfx}.fastq.gz")
+                    with open(part, "rb") as fh:
+                        shutil.copyfileobj(fh, out)
+                    os.remove(part)
+    os.rmdir(tmp)
+
+# 256-entry byte -> base table, 70 A / 58 C / 58 G / 70 T = 45.3% GC
+FILLER_TABLE = bytes(b"A" * 70 + b"C" * 58 + b"G" * 58 + b"T" * 70)
+
+def write_padded_genomes():
+    os.makedirs(GENOMES_OUT, exist_ok=True)
+    real = sum(CONTIG_SIZES.values())
+    for name, size in PADDED_GENOMES:
+        R = random.Random(chunk_seed(SEED, name))
+        path = os.path.join(GENOMES_OUT, f"{name}.fa")
+        with open(path, "w") as fh:
+            for c in CONTIG_SIZES:                       # the real contigs, unchanged
+                fh.write(f">{c}\n{wrap60(''.join(contigs[c]))}\n")
+            left, n = size - real, 0
+            while left > 0:
+                n += 1; L = min(FILLER_CONTIG, left); left -= L
+                seq = R.randbytes(L).translate(FILLER_TABLE).decode()
+                fh.write(f">chrF{n:03d}\n{wrap60(seq)}\n")
+        print(f"padded genome -> {path} ({size:,} bp: {real:,} real + {n} filler contigs)")
 
 def read_fastq(path):
     with gzip.open(path, "rt") as fh:
@@ -764,12 +850,13 @@ def write_bsj_sequences():
 
 def write_libraries():
     with open(os.path.join(OUT, "libraries.tsv"), "w") as fh:
-        fh.write("library\tlayout\tread_len\tsub_rate\tindel_rate\tstrandedness\tderived_from\n")
+        fh.write("library\tlayout\tread_len\tsub_rate\tindel_rate\tstrandedness\tderived_from\tscale\n")
         spec = {t: (pe, rlen, sub, indel) for t, pe, rlen, sub, indel in LIBS}
-        rows = [(t, t, "fwd", ".") for t in spec] + [(t, b, s, b) for t, b, s in STRAND_VARIANTS]
-        for tag, base, strandedness, derived in rows:
+        rows = ([(t, t, "fwd", ".", 1) for t in spec] + [(t, b, s, b, 1) for t, b, s in STRAND_VARIANTS]
+                + [(t, b, "fwd", b, k) for t, b, k in SCALED_LIBS])
+        for tag, base, strandedness, derived, k in rows:
             pe, rlen, sub, indel = spec[base]
-            fh.write(f"{tag}\t{'pe' if pe else 'se'}\t{rlen}\t{sub}\t{indel}\t{strandedness}\t{derived}\n")
+            fh.write(f"{tag}\t{'pe' if pe else 'se'}\t{rlen}\t{sub}\t{indel}\t{strandedness}\t{derived}\t{k}\n")
 
 def write_read_origin():
     with open(os.path.join(OUT, "read_origin.tsv"), "w") as fh:
@@ -798,6 +885,15 @@ for b in bsj_truth:
 # ==========================================================================
 #  RUN
 # ==========================================================================
+if {"--scaled", "--padded-genomes"} & set(sys.argv):   # runtime-benchmark extras only
+    if "--scaled" in sys.argv:
+        emit_scaled()
+        write_libraries()
+        print("scaled libraries ->", SCALED_OUT, [t for t, _, _ in SCALED_LIBS])
+    if "--padded-genomes" in sys.argv:
+        write_padded_genomes()
+    sys.exit(0)
+
 write_genome()
 write_gtf()
 emit_fastq()

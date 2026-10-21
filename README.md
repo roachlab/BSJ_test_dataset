@@ -204,6 +204,7 @@ This is intentional and lets you separate annotation-guided from de-novo perform
 ```bash
 python3 generate_dataset.py   # writes everything into ./dataset/ (seeded, deterministic)
 python3 verify.py             # asserts coords in-bounds, motifs match genome, read counts
+python3 generate_dataset.py --scaled --padded-genomes   # optional runtime extras: 100x/1000x/10000x reads (dataset/scaled/), 1 Gbp padded genome (dataset/genomes/)
 ```
 
 ---

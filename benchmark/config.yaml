@@ -79,3 +79,46 @@ libraries:
     type: se
     r1: reads_se150_lowerr_unstr.fastq.gz
     overhang: 149
+
+  # Scaled libraries for runtime benchmarking: same truth, 100x the reads (~357k reads/pairs).
+  # Not committed -- generate with `python3 generate_dataset.py --scaled` (into dataset/scaled/).
+  # `optional: true` = skipped with a message when the files are missing.
+  pe150_lowerr_x100:
+    type: pe
+    r1: scaled/reads_pe150_lowerr_x100_R1.fastq.gz
+    r2: scaled/reads_pe150_lowerr_x100_R2.fastq.gz
+    overhang: 149
+    optional: true
+  se150_lowerr_x100:
+    type: se
+    r1: scaled/reads_se150_lowerr_x100.fastq.gz
+    overhang: 149
+    optional: true
+  # x1000 (~3.6M) and x10000 (~36M reads/pairs): hours per tool, so `scaled_only` keeps them out of
+  # a default run -- they only run when named in only=[...].
+  pe150_lowerr_x1000:
+    type: pe
+    r1: scaled/reads_pe150_lowerr_x1000_R1.fastq.gz
+    r2: scaled/reads_pe150_lowerr_x1000_R2.fastq.gz
+    overhang: 149
+    optional: true
+    scaled_only: true
+  se150_lowerr_x1000:
+    type: se
+    r1: scaled/reads_se150_lowerr_x1000.fastq.gz
+    overhang: 149
+    optional: true
+    scaled_only: true
+  pe150_lowerr_x10000:
+    type: pe
+    r1: scaled/reads_pe150_lowerr_x10000_R1.fastq.gz
+    r2: scaled/reads_pe150_lowerr_x10000_R2.fastq.gz
+    overhang: 149
+    optional: true
+    scaled_only: true
+  se150_lowerr_x10000:
+    type: se
+    r1: scaled/reads_se150_lowerr_x10000.fastq.gz
+    overhang: 149
+    optional: true
+    scaled_only: true

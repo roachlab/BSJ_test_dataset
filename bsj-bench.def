@@ -30,7 +30,7 @@ From: mambaorg/micromamba:1.5.10
 
     # CIRI2 (distributed as a Perl script, not on bioconda) -- fetched at build time.
     # To use a different source, edit CIRI2_URL below before building.
-    apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip
+    apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip time
     rm -rf /var/lib/apt/lists/*
     CIRI2_URL="https://sourceforge.net/projects/ciri/files/CIRI2/CIRI_v2.0.6.zip/download"
     curl -L "$CIRI2_URL" -o /tmp/ciri.zip

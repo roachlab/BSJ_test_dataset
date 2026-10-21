@@ -3,7 +3,8 @@
 Plot benchmark results produced by evaluate.py (one JSON per tool x library x variant).
 
 Every figure is small multiples with a shared library axis, so runs stay readable as
-tools and libraries are added. Strandedness variants (*_rev, *_unstr) sit next to their
+tools and libraries are added. Scaled libraries (scale > 1 in libraries.tsv) appear only in
+runtime.png; summary.tsv still lists them. Strandedness variants (*_rev, *_unstr) sit next to their
 base library. Tools keep a fixed color in every figure.
 
 Outputs (each as PNG and SVG, into --out):
@@ -13,6 +14,9 @@ Outputs (each as PNG and SVG, into --out):
   quantification.png            Spearman of detected vs expected junction reads: radar, spokes = libraries
   precision_recall_f1_scatter.png
   quantification_scatter.png    the same two as dot plots: libraries on x, one dot (colour + marker) per tool
+  runtime.png                   wall time, CPU time and peak memory per tool, SCALED libraries only (scale > 1
+                                in libraries.tsv), from the GNU time files in <results>/timing/ (skipped if
+                                there are none); numbers also go to <results>/runtime_summary.tsv
   strand_accuracy.png           every true BSJ: correct / wrong / no strand / not detected, one panel per tool
   strand_heatmap.png            the same outcome per individual true BSJ: BSJ x library, one panel per tool
                                 (needs --dataset for the truth list)
@@ -364,6 +368,119 @@ def plot_strand_heatmap(runs, truth, out):
     fig.tight_layout(rect=(0, 0, 1, 0.97))
     save(fig, out, "strand_heatmap.png")
 
+# GNU time files from the Snakefile: <results>/timing/<tool>/<lib>.<rule>.tsv, one-off index
+# builds as shared.<rule>.tsv; one line per timed command: wall_s user_s sys_s max_rss_kb.
+BENCH_TOOL = {"bsj_finder": ("bsj_finder", "bsj_finder"), "ciri2": ("ciri2", "CIRI2 (BWA-MEM + CIRI2)"),
+              "circexplorer2": ("circexplorer2_bed", "CIRCexplorer2 (STAR + parse + annotate)")}
+
+def load_benchmarks(results):
+    """{tool: {lib|'shared': {rule: {wall, cpu, rss}}}}; wall/cpu in s summed over the rule's
+    timed commands, rss in MB (largest)."""
+    out = {}
+    for f in sorted(glob.glob(os.path.join(results, "timing", "*", "*.tsv"))):
+        tool = os.path.basename(os.path.dirname(f))
+        lib, rule = os.path.basename(f)[:-4].split(".", 1)
+        rows = []
+        for ln in open(f):
+            p = ln.rstrip("\n").split("\t")
+            try:
+                rows.append([float(x) for x in p])        # skips "Command exited with ..." lines
+            except ValueError:
+                continue
+        rows = [r for r in rows if len(r) == 4]
+        if not rows:
+            continue
+        out.setdefault(tool, {}).setdefault(lib, {})[rule] = dict(
+            wall=sum(r[0] for r in rows), cpu=sum(r[1] + r[2] for r in rows), rss=max(r[3] for r in rows) / 1024)
+    return out
+
+def scaled_libraries(dataset):
+    """libraries with scale > 1 in libraries.tsv ({name: scale}); None if there is no manifest."""
+    path = os.path.join(dataset, "libraries.tsv")
+    if not os.path.exists(path):
+        return None
+    with open(path) as fh:
+        hdr = fh.readline().rstrip("\n").split("\t"); ix = {c: i for i, c in enumerate(hdr)}
+        if "scale" not in ix:
+            return {}
+        rows = [ln.rstrip("\n").split("\t") for ln in fh]
+    return {f[ix["library"]]: int(f[ix["scale"]]) for f in rows if len(f) > ix["scale"] and int(f[ix["scale"]]) > 1}
+
+def is_scaled_fn(dataset):
+    """predicate: is this a scaled (runtime-only) library? From libraries.tsv's scale column,
+    or the _x<N> name suffix when there is no manifest."""
+    scaled = scaled_libraries(dataset)
+    if scaled is None:
+        return lambda l: bool(re.search(r"_x\d+$", l))
+    return lambda l: l in scaled
+
+def plot_runtime(runs, bench, results, out, dataset):
+    """Runtime on the SCALED libraries only (100x reads): on the small libraries every step takes
+    seconds and measures start-up, not work. Per tool x library: wall and CPU (user + sys) time
+    summed over the tool's steps, peak RSS = largest single process. One-off index builds are
+    kept out of the per-library numbers and listed separately."""
+    _, _, _, run_style = axes_of(runs)
+    tools = [t for t in BENCH_TOOL if t in bench] + sorted(t for t in bench if t not in BENCH_TOOL)
+    scaled = scaled_libraries(dataset)
+    is_scaled = is_scaled_fn(dataset)
+    libs = sorted({l for t in tools for l in bench[t] if l != "shared" and is_scaled(l)}, key=lib_key)
+    if not libs:                       # keep the Snakemake output; say why it is empty
+        fig, ax = plt.subplots(figsize=(6, 1.5)); ax.axis("off")
+        ax.text(0.5, 0.5, "No scaled libraries timed.\nGenerate them with: python3 generate_dataset.py --scaled",
+                ha="center", va="center", color=INK2)
+        save(fig, out, "runtime.png")
+        return
+    style = {t: run_style.get(BENCH_TOOL.get(t, (t,))[0], (SLOTS[len(BENCH_TOOL) + i % 4], MARKERS[i % 8]))
+             for i, t in enumerate(tools)}
+    label = {t: BENCH_TOOL.get(t, (t, t))[1] for t in tools}
+    agg = {}   # (tool, lib) -> wall, cpu, rss
+    for t in tools:
+        for l, steps in bench[t].items():
+            st = list(steps.values())
+            agg[(t, l)] = dict(wall=sum(x["wall"] for x in st), cpu=sum(x["cpu"] for x in st),
+                               rss=max(x["rss"] for x in st))
+    panels = [("wall", "Wall time (s)", False),
+              ("cpu", "CPU time (user + system, s)", False),
+              ("rss", "Peak memory (largest process RSS, MB)", False)]
+    fig, axs = plt.subplots(1, len(panels), figsize=(4.2 * len(panels), 4.6))
+    n = len(tools); w = 0.5
+    for ax, (key, title, logy) in zip(axs, panels):
+        for k, t in enumerate(tools):
+            xs = [j + (k - (n - 1) / 2) * w / max(n - 1, 1) for j, l in enumerate(libs) if (t, l) in agg]
+            ys = [agg[(t, l)][key] for l in libs if (t, l) in agg]
+            c, m = style[t]
+            ax.scatter(xs, ys, s=60, marker=m, color=c, edgecolors=SURFACE, linewidths=1.0, zorder=3 + n - k)
+        if logy: ax.set_yscale("log")
+        else: ax.set_ylim(0, ax.get_ylim()[1] * 1.08)
+        ax.set_title(title, loc="left")
+        ax.set_xlim(-0.6, len(libs) - 0.4)
+        ax.grid(axis="y", which="major", color=GRID, lw=0.6); ax.set_axisbelow(True)
+        group_separators(ax, libs)
+        ax.set_xticks(range(len(libs))); ax.set_xticklabels(libs, rotation=0)
+    handles = [plt.Line2D([], [], ls="", marker=style[t][1], ms=7, mfc=style[t][0], mec=SURFACE, mew=1.2,
+                          label=label[t]) for t in tools]
+    fig.legend(handles=handles, loc="upper center", ncol=len(tools), frameon=False,
+               bbox_to_anchor=(0.5, 1.0), fontsize=8)
+    shared = [f"{label[t].split(' (')[0]} {r.replace('_', ' ')}: {v['wall']:.1f} s wall, {v['cpu']:.1f} s CPU, "
+              f"{v['rss']:.0f} MB" for t in tools for r, v in bench[t].get("shared", {}).items()]
+    if shared:
+        fig.text(0.01, -0.01, "One-off builds, not included above: " + "; ".join(shared),
+                 fontsize=7, color=INK2, ha="left", va="top", wrap=True)
+    ks = sorted({scaled[l] for l in libs}) if scaled else []
+    scale = f" ({ks[0]}x the reads of their base library)" if len(ks) == 1 else ""
+    fig.suptitle(f"Runtime on the scaled libraries{scale}; 8 threads, one job at a time",
+                 x=0.01, y=0.9, ha="left", fontsize=9, color=INK2)
+    fig.tight_layout(rect=(0, 0, 1, 0.86))
+    save(fig, out, "runtime.png")
+    # summary table: one row per tool x library, plus the one-off builds as library "shared"
+    with open(os.path.join(results, "runtime_summary.tsv"), "w") as fh:
+        fh.write("tool\tlibrary\twall_s\tcpu_s\tpeak_rss_mb\n")
+        for t in tools:
+            for l in libs + ["shared"]:
+                if (t, l) in agg:
+                    x = agg[(t, l)]
+                    fh.write(f"{t}\t{l}\t{x['wall']:.2f}\t{x['cpu']:.2f}\t{x['rss']:.1f}\n")
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--results", default="results")
@@ -372,9 +489,14 @@ def main():
     a = ap.parse_args()
     out = a.out or os.path.join(a.results, "plots")
     os.makedirs(out, exist_ok=True)
-    runs = load(a.results)
-    if not runs:
+    all_runs = load(a.results)
+    if not all_runs:
         print(f"No JSON results under {a.results}/ — run the pipelines first."); return
+    # scaled libraries are a runtime workload: only runtime.png shows them
+    is_scaled = is_scaled_fn(a.dataset)
+    runs = [r for r in all_runs if not is_scaled(r["library"])]
+    if not runs:                       # a results tree of only scaled libraries (e.g. another genome)
+        runs = all_runs
     plot_recall_vs_coverage(runs, out)
     plot_category_heatmap(runs, out)
     plot_prf(runs, out)
@@ -387,7 +509,11 @@ def main():
         plot_strand_heatmap(runs, truth, out)
     else:
         print(f"no truth_bsj.tsv under {a.dataset}/ — skipping strand_heatmap.png")
-    print(f"Wrote {7 + bool(truth)} plots for {len(runs)} run(s) -> {out}/")
+    bench = load_benchmarks(a.results)
+    if bench:
+        plot_runtime(all_runs, bench, a.results, out, a.dataset)
+    print(f"Wrote {7 + bool(truth) + bool(bench)} plots for {len(runs)} run(s) "
+          f"(+ {len(all_runs) - len(runs)} scaled, runtime only) -> {out}/")
 
 if __name__ == "__main__":
     main()

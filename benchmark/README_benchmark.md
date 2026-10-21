@@ -133,6 +133,52 @@ Positives = the 48 true BSJ loci; negatives = the 39 decoy loci.
 - **missed** / **decoys_called** / **strand_wrong_ids** lists (in the JSON) name exactly which
   loci failed, for drill-down.
 
+## Runtime and memory
+
+Each tool rule wraps its main command in GNU `time` and writes
+`results/timing/<tool>/<lib>.<rule>.tsv` (wall s, user s, system s, max RSS KB). One-off index
+builds are `shared.<rule>.tsv`. `plot_results.py` turns these into `plots/runtime.png` (wall time,
+CPU time and peak memory per tool) and `results/runtime_summary.tsv`, **for the scaled libraries
+only** (`scale` > 1 in `libraries.tsv`): on the small libraries every step takes seconds and
+mostly measures start-up.
+
+- **Use the scaled libraries.** On the 3,568-read libraries every step takes seconds and is
+  dominated by start-up, so they are left out. `python3 generate_dataset.py --scaled` writes
+  `{pe,se}150_lowerr_x{100,1000,10000}` (same truth; ~357k / 3.6M / 36M reads or pairs, ~1.4 GB
+  in total) to `dataset/scaled/`, rendered as independently seeded 100x chunks on up to 32
+  processes (about 7 min). `python3 verify.py --scaled` checks them. They are git-ignored.
+  Only the x100 pair is listed in `config.yaml` (as `optional`); add the others to run them.
+- **Genome size.** `python3 generate_dataset.py --padded-genomes` writes
+  `dataset/genomes/genome_1gbp.fa`: the three real contigs unchanged plus 100 random 10 Mbp
+  filler contigs (~45% GC), so reads, truth and annotation stay valid. The workflow still uses
+  `python3 verify.py --padded-genomes` checks it. Git-ignored.
+- **Running against another genome / a subset of libraries.** `genome=`, `results=` and `only=`
+  select the reference, a separate results tree and the libraries, e.g.
+  `snakemake --cores 8 --config threads=8 genome=../dataset/genomes/genome_1gbp.fa
+  results=results_genome_1gbp 'only=["pe150_lowerr_x1000","se150_lowerr_x1000"]'`. The x1000 /
+  x10000 libraries are `scaled_only` and run only when named in `only=`. bsj_finder's minimap2
+  index is built once per tree (`bsj_finder_index`) and linked into each library run, so like the
+  STAR and BWA indexes it is timed separately. `bsj_finder_config="minimap2_k=21 minimap2_w=11"`
+  passes extra settings to bsj_finder's own config (index and detection), e.g. its `sr`-preset
+  seeding for large genomes; use a separate `results=` tree to keep both runs.
+- **Scaling plots.** `python3 plot_scaling.py --tree results:1.5e6 --tree
+  results_genome_1gbp:1e9 --runtime-genome results_genome_1gbp --out results/plots` writes
+  `runtime_by_library_size` (wall and CPU time vs reads, log-log, on the 1 Gbp genome) and
+  `memory_by_genome_size` (peak memory vs genome size for the x100 runs and the index builds),
+  plus `scaling_summary.tsv`. `--variant "results_genome_1gbp_k21:bsj_finder:bsj_finder (k21 w11)"`
+  adds another run of one tool as a dashed line.
+- **Run one job at a time with the same threads for every tool**, e.g.
+  `snakemake --cores 8 --config threads=8`, or the timings measure contention.
+- **Container:** the current `bsj-bench.sif` lacks GNU `time`; bind the host's:
+  `apptainer exec -B /usr/bin/time:/usr/bin/time ...`. The recipes now install it, so a rebuilt
+  image does not need this. Override the path with `--config time_bin=...`.
+- CPU and peak RSS cover child processes; RSS is the **largest single process**, not a sum.
+- bsj_finder's fastp step used to run `--dedup --dup_calc_accuracy 4`, which allocates a fixed
+  ~8 GB hash regardless of input and, without UMIs, removed independent junction reads that
+  share a sequence (recovery fell to 0.22-0.41 of expected reads on the scaled libraries). With
+  dedup dropped, its peak is ~1.2-1.4 GB on the scaled libraries; most of the remaining ~1 GB is
+  fastp's duplication-rate report (`--dont_eval_duplication` would remove it).
+
 ## Expected behaviour / gotchas
 
 - CIRCexplorer2 `annotate` reports only **annotation-supported** circles, so it will miss the

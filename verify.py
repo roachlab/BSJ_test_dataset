@@ -1,4 +1,4 @@
-import gzip, os, collections
+import gzip, os, sys, collections
 D = "dataset"
 
 def fa(path):
@@ -43,9 +43,12 @@ check(canon >= 30, f"canonical GT/AG circles = {canon}")
 # 3. junction read counts per BSJ == expected, in EVERY library
 libs = [l.rstrip("\n").split("\t") for l in open(os.path.join(D, "libraries.tsv"))]
 lix = {c: i for i, c in enumerate(libs[0])}
-LIBS = {r[lix["library"]]: dict(layout=r[lix["layout"]], read_len=int(r[lix["read_len"]]),
-                                strandedness=r[lix["strandedness"]], base=r[lix["derived_from"]])
-        for r in libs[1:]}
+ALL = {r[lix["library"]]: dict(layout=r[lix["layout"]], read_len=int(r[lix["read_len"]]),
+                               strandedness=r[lix["strandedness"]], base=r[lix["derived_from"]],
+                               scale=int(r[lix["scale"]]) if "scale" in lix else 1)
+       for r in libs[1:]}
+LIBS = {t: L for t, L in ALL.items() if L["scale"] == 1}        # libraries in read_origin.tsv
+SCALED = {t: L for t, L in ALL.items() if L["scale"] != 1}      # dataset/scaled/, optional
 PE_LIBS = [(t, L["read_len"]) for t, L in LIBS.items() if L["layout"] == "pe"]
 SE_LIBS = [(t, L["read_len"]) for t, L in LIBS.items() if L["layout"] == "se"]
 ALL_LIBS = list(LIBS)
@@ -148,6 +151,28 @@ for lib, L in LIBS.items():
     got = sense if want == "sense" else anti
     check(got > 0.9 * (sense + anti),
           f"{lib}: labelled {L['strandedness']}, R1 junction reads circle-{want} ({got}/{sense + anti})")
+
+# 6b. scaled runtime libraries: read count = scale x base, read length. Only with --scaled
+#     (reading 36M-read files takes a few minutes).
+for lib, L in (SCALED.items() if "--scaled" in sys.argv else []):
+    files = ([os.path.join(D, "scaled", f"reads_{lib}_R{i}.fastq.gz") for i in (1, 2)]
+             if L["layout"] == "pe" else [os.path.join(D, "scaled", f"reads_{lib}.fastq.gz")])
+    if not all(os.path.exists(f) for f in files):
+        print(f"SKIP {lib}: not generated (python3 generate_dataset.py --scaled)"); continue
+    want = L["scale"] * lib_totals[L["base"]]
+    stats = [fq_stats(f) for f in files]
+    check(all(n == want for n, _ in stats) and all(l == {L["read_len"]} for _, l in stats),
+          f"{lib}: {stats[0][0]} reads ({L['scale']}x {L['base']}), all {L['read_len']}bp")
+
+# 6c. filler-padded genomes (only with --padded-genomes): real contigs unchanged, size as named
+if "--padded-genomes" in sys.argv:
+    for f in sorted(os.listdir(os.path.join(D, "genomes"))) if os.path.isdir(os.path.join(D, "genomes")) else []:
+        if not f.endswith(".fa"): continue
+        pg = fa(os.path.join(D, "genomes", f))
+        same = all(pg.get(c) == g[c] for c in g)
+        size = sum(len(v) for v in pg.values())
+        check(same, f"genomes/{f}: real contigs identical to genome.fa")
+        check(f != "genome_1gbp.fa" or size == 1_000_000_000, f"genomes/{f}: {size:,} bp in {len(pg)} contigs")
 
 # 7. negatives present
 negs = [l for l in open(os.path.join(D, "truth_negatives.tsv"))][1:]

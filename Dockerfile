@@ -16,7 +16,7 @@ ENV PATH=/opt/conda/bin:$PATH
 #    Override with: --build-arg CIRI2_URL=<url>, or mount CIRI2.pl and set $CIRI2 at run time.
 USER root
 ARG CIRI2_URL="https://sourceforge.net/projects/ciri/files/CIRI2/CIRI_v2.0.6.zip/download"
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip time \
     && rm -rf /var/lib/apt/lists/* \
     && curl -L "$CIRI2_URL" -o /tmp/ciri.zip \
     && unzip -o /tmp/ciri.zip -d /opt/ciri \
