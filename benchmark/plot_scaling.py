@@ -24,15 +24,16 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from plot_results import (load_benchmarks, scaled_libraries, save, BENCH_TOOL, SLOTS, MARKERS,
+from plot_results import (load_benchmarks, scaled_libraries, save, BENCH_TOOL, TOOL_STYLE, VARIANTS,
                           INK2, GRID, SURFACE)
 
 BASE_READS = 3568          # reads (SE) / pairs (PE) in every base library
 TOOLS = [t for t in BENCH_TOOL]                     # fixed order: bsj_finder, ciri2, circexplorer2
-STYLE = {"bsj_finder": (SLOTS[0], MARKERS[0]), "ciri2": (SLOTS[1], MARKERS[1]),
-         "circexplorer2": (SLOTS[2], MARKERS[2])}
+STYLE = {t: TOOL_STYLE[BENCH_TOOL[t][0]] for t in TOOLS}
 LABEL = {t: BENCH_TOOL[t][1] for t in TOOLS}
-INDEX = {"bsj_finder": "bsj_finder_index", "ciri2": "bwa_index", "circexplorer2": "star_index"}
+SEEN = set()        # tools with timing data in any tree (the legend lists only these)
+INDEX = {"bsj_finder": "bsj_finder_index", "bsj_finder_fast": "bsj_finder_index",
+         "ciri2": "bwa_index", "circexplorer2": "star_index"}
 
 def per_lib(bench):
     """{(tool, lib): wall, cpu, rss} summed / maxed over each tool's per-library steps"""
@@ -53,13 +54,17 @@ def style_ax(ax, title):
     ax.grid(which="major", color=GRID, lw=0.6); ax.set_axisbelow(True)
 
 def line(ax, t, xs, ys, variant=False):
+    variant = variant or t in VARIANTS
     c, m = STYLE[t]
     ax.plot(xs, ys, color=c, marker=m, ms=7, lw=2, ls="--" if variant else "-",
             mfc=SURFACE if variant else c, mec=c if variant else SURFACE, mew=1.5)
 
 def legend(fig, variants=()):
-    h = [plt.Line2D([], [], color=STYLE[t][0], marker=STYLE[t][1], ms=7, mec=SURFACE, lw=2, label=LABEL[t])
-         for t in TOOLS]
+    present = [t for t in TOOLS if t in SEEN]
+    h = [plt.Line2D([], [], color=STYLE[t][0], marker=STYLE[t][1], ms=7, lw=2, label=LABEL[t],
+                    ls="--" if t in VARIANTS else "-", mfc=SURFACE if t in VARIANTS else STYLE[t][0],
+                    mec=STYLE[t][0] if t in VARIANTS else SURFACE, mew=1.5)
+         for t in present]
     h += [plt.Line2D([], [], color=STYLE[t][0], marker=STYLE[t][1], ms=7, mfc=SURFACE, mec=STYLE[t][0], mew=1.5,
                      lw=2, ls="--", label=lab) for lab, t, _ in variants]
     fig.legend(handles=h, loc="upper center", ncol=len(h), frameon=False, bbox_to_anchor=(0.5, 1.0))
@@ -91,6 +96,7 @@ def main():
     trees = [(d, float(sz)) for d, sz in (t.rsplit(":", 1) for t in a.tree)]
     scaled = scaled_libraries(a.dataset) or {}
     data = {d: (load_benchmarks(d), per_lib(load_benchmarks(d)), size) for d, size in trees}
+    SEEN.update(t for b, _, _ in data.values() for t in b)
     rows = []
 
     # ---- runtime vs library size (one genome)

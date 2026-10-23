@@ -97,6 +97,21 @@ and `bsj_finder_merge_tol` (breakpoint clustering tolerance). Coverage note: the
 **J2** isoforms share identical breakpoints and are scored as one truth junction (`BSJ_J2`),
 so 48/48 is reachable by any coordinate-based caller, bsj_finder included.
 
+**Presets as two tools.** `bsj_finder_variants` in `config.yaml` maps tool names to extra
+bsj_finder settings: `bsj_finder` (its default `sensitive` preset, `-k 11 -w 5`) and
+`bsj_finder_fast` (`preset=fast`, `-k 21 -w 11`). Each is benchmarked as its own tool under
+`results/<name>/`, with its own minimap2 index, and both are in `tools:` by default. The presets
+need bsj_finder `cc4da4f` or later: an older checkout silently ignores `preset=`, so the index
+step stops with an error if bsj_finder does not report the preset it applied. Point
+`bsj_finder_dir` at a checkout with presets; the default, the `bsj_finder` submodule, is pinned
+to `cc4da4f`, which has them.
+
+**Failed runs are recorded, not fatal.** If bsj_finder exits non-zero for a library (e.g.
+strandedness auto-detection refusing on a small, noisy library), the benchmark writes an empty
+call set and `results/<tool>/<lib>.status` = `failed: <reason>`; `evaluate.py --status` carries
+it into the JSON and `summary.tsv` gains a `status` column (`ok` otherwise). bsj_finder's own
+log for each library is `results/<tool>/work/<lib>/bsj_finder.log`.
+
 ## What gets matched
 
 A call matches a true BSJ when chrom is equal and **both** breakpoints fall within a tolerance

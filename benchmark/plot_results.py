@@ -34,13 +34,20 @@ from matplotlib.patches import Patch
 
 COV_BINS = ["1-2", "3-9", "10-49", "50+"]
 
-# Fixed tool identity: color (categorical slots, in order) + a marker for the scatter plots.
-TOOL_ORDER = ["bsj_finder", "ciri2", "circexplorer2_bed", "circexplorer2_known"]
-TOOL_LABEL = {"bsj_finder": "bsj_finder", "ciri2": "CIRI2",
+# Fixed tool identity, the same in every figure: colour (categorical slots) + marker. A preset
+# variant of a tool (VARIANTS) keeps that tool's colour and marker but is drawn hollow / dashed,
+# so "same tool, other settings" reads at a glance and no extra hue is needed.
+TOOL_ORDER = ["bsj_finder", "bsj_finder_fast", "ciri2", "circexplorer2_bed", "circexplorer2_known"]
+TOOL_LABEL = {"bsj_finder": "bsj_finder (sensitive)", "bsj_finder_fast": "bsj_finder (fast)",
+              "ciri2": "CIRI2",
               "circexplorer2_bed": "CIRCexplorer2 (de novo)",
               "circexplorer2_known": "CIRCexplorer2 (known)"}
 SLOTS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"]
 MARKERS = ["o", "s", "D", "^", "v", "P", "X", "h"]   # secondary encoding in the scatter plots
+TOOL_STYLE = {"bsj_finder": (SLOTS[0], "o"), "bsj_finder_fast": (SLOTS[0], "o"),
+              "ciri2": (SLOTS[1], "s"), "circexplorer2_bed": (SLOTS[2], "D"),
+              "circexplorer2_known": (SLOTS[3], "^")}
+VARIANTS = {"bsj_finder_fast"}
 
 INK, INK2, MUTED = "#0b0b0b", "#52514e", "#898781"
 GRID, AXIS, SURFACE = "#e1e0d9", "#c3c2b7", "#fcfcfb"
@@ -88,8 +95,20 @@ def axes_of(runs):
                    key=lambda t: (TOOL_ORDER.index(t) if t in TOOL_ORDER else len(TOOL_ORDER), t))
     libs = sorted({r["library"] for r in runs}, key=lib_key)
     by = {(r["tool"], r["library"]): r for r in runs}
-    style = {t: (SLOTS[i % len(SLOTS)], MARKERS[i % len(MARKERS)]) for i, t in enumerate(tools)}
+    extra = [t for t in tools if t not in TOOL_STYLE]          # unknown tools: next free slots
+    style = {t: TOOL_STYLE.get(t) or (SLOTS[(4 + extra.index(t)) % len(SLOTS)], MARKERS[(4 + extra.index(t)) % len(MARKERS)])
+             for t in tools}
     return tools, libs, by, style
+
+def dot_kw(t, style, size=34):
+    """scatter kwargs: filled marker, or hollow for a preset variant"""
+    c, m = style[t]
+    if t in VARIANTS:
+        return dict(s=size, marker=m, facecolors=SURFACE, edgecolors=c, linewidths=1.6)
+    return dict(s=size, marker=m, color=c, edgecolors=SURFACE, linewidths=1.0)
+
+def line_kw(t, style):
+    return dict(color=style[t][0], lw=2, ls="--" if t in VARIANTS else "-")
 
 def lib_ticks(ax, libs, axis="x"):
     """library tick labels; strand variants indented under their base so the grouping reads."""
@@ -112,10 +131,13 @@ def tool_legend(fig, tools, style, ncol=None, notes=None, fontsize=8, markers=Fa
     notes = notes or {}
     label = lambda t: TOOL_LABEL.get(t, t) + (f" ({notes[t]})" if t in notes else "")
     if markers:
-        handles = [plt.Line2D([], [], ls="", marker=style[t][1], ms=7, mfc=style[t][0], mec=SURFACE,
-                              mew=1.2, label=label(t)) for t in tools]
+        handles = [plt.Line2D([], [], ls="", marker=style[t][1], ms=7, label=label(t),
+                              mfc=SURFACE if t in VARIANTS else style[t][0],
+                              mec=style[t][0] if t in VARIANTS else SURFACE, mew=1.6 if t in VARIANTS else 1.2)
+                   for t in tools]
     else:
-        handles = [plt.Line2D([], [], color=style[t][0], lw=2.5, label=label(t)) for t in tools]
+        handles = [plt.Line2D([], [], color=style[t][0], lw=2.5, ls="--" if t in VARIANTS else "-",
+                              label=label(t)) for t in tools]
     fig.legend(handles=handles, loc="upper center", ncol=ncol or len(tools), frameon=False,
                bbox_to_anchor=(0.5, 1.0), fontsize=fontsize)
 
@@ -204,7 +226,7 @@ def radar_panel(ax, tools, libs, by, style, metric, title, fs=7):
             continue
         v = np.maximum(v, RADAR_MIN)
         a, r = np.append(ang, ang[0]), np.append(v, v[0])
-        ax.plot(a, r, color=style[t][0], lw=2, zorder=3 + len(tools) - k)   # earlier tools on top
+        ax.plot(a, r, **line_kw(t, style), zorder=3 + len(tools) - k)   # earlier tools on top
     ax.set_xticks(ang); ax.set_xticklabels(libs, fontsize=fs, color=INK2)
     ax.tick_params(axis="x", pad=6)
     for lab, th in zip(ax.get_xticklabels(), ang):     # anchor each label on the side away from the ring
@@ -247,9 +269,7 @@ def dot_panel(ax, tools, libs, by, style, metric):
             v = by.get((t, l), {}).get(metric)
             if _num(v):
                 xs.append(j + (k - (n - 1) / 2) * w / max(n - 1, 1)); ys.append(v)
-        c, m = style[t]
-        ax.scatter(xs, ys, s=34, marker=m, color=c, edgecolors=SURFACE, linewidths=1.0,
-                   zorder=3 + len(tools) - k)
+        ax.scatter(xs, ys, **dot_kw(t, style), zorder=3 + len(tools) - k)
     ax.set_xlim(-0.6, len(libs) - 0.4)
     ax.grid(axis="y", color=GRID, lw=0.6); ax.set_axisbelow(True)
     group_separators(ax, libs)
@@ -370,7 +390,8 @@ def plot_strand_heatmap(runs, truth, out):
 
 # GNU time files from the Snakefile: <results>/timing/<tool>/<lib>.<rule>.tsv, one-off index
 # builds as shared.<rule>.tsv; one line per timed command: wall_s user_s sys_s max_rss_kb.
-BENCH_TOOL = {"bsj_finder": ("bsj_finder", "bsj_finder"), "ciri2": ("ciri2", "CIRI2 (BWA-MEM + CIRI2)"),
+BENCH_TOOL = {"bsj_finder": ("bsj_finder", "bsj_finder (sensitive)"),
+              "bsj_finder_fast": ("bsj_finder_fast", "bsj_finder (fast)"), "ciri2": ("ciri2", "CIRI2 (BWA-MEM + CIRI2)"),
               "circexplorer2": ("circexplorer2_bed", "CIRCexplorer2 (STAR + parse + annotate)")}
 
 def load_benchmarks(results):
@@ -430,7 +451,8 @@ def plot_runtime(runs, bench, results, out, dataset):
                 ha="center", va="center", color=INK2)
         save(fig, out, "runtime.png")
         return
-    style = {t: run_style.get(BENCH_TOOL.get(t, (t,))[0], (SLOTS[len(BENCH_TOOL) + i % 4], MARKERS[i % 8]))
+    key = lambda t: BENCH_TOOL.get(t, (t,))[0]          # timing dir -> the tool key used for styles
+    style = {t: run_style.get(key(t)) or TOOL_STYLE.get(key(t)) or (SLOTS[(4 + i) % len(SLOTS)], MARKERS[i % 8])
              for i, t in enumerate(tools)}
     label = {t: BENCH_TOOL.get(t, (t, t))[1] for t in tools}
     agg = {}   # (tool, lib) -> wall, cpu, rss
@@ -448,8 +470,7 @@ def plot_runtime(runs, bench, results, out, dataset):
         for k, t in enumerate(tools):
             xs = [j + (k - (n - 1) / 2) * w / max(n - 1, 1) for j, l in enumerate(libs) if (t, l) in agg]
             ys = [agg[(t, l)][key] for l in libs if (t, l) in agg]
-            c, m = style[t]
-            ax.scatter(xs, ys, s=60, marker=m, color=c, edgecolors=SURFACE, linewidths=1.0, zorder=3 + n - k)
+            ax.scatter(xs, ys, **dot_kw(t, style, 60), zorder=3 + n - k)
         if logy: ax.set_yscale("log")
         else: ax.set_ylim(0, ax.get_ylim()[1] * 1.08)
         ax.set_title(title, loc="left")
@@ -457,8 +478,10 @@ def plot_runtime(runs, bench, results, out, dataset):
         ax.grid(axis="y", which="major", color=GRID, lw=0.6); ax.set_axisbelow(True)
         group_separators(ax, libs)
         ax.set_xticks(range(len(libs))); ax.set_xticklabels(libs, rotation=0)
-    handles = [plt.Line2D([], [], ls="", marker=style[t][1], ms=7, mfc=style[t][0], mec=SURFACE, mew=1.2,
-                          label=label[t]) for t in tools]
+    handles = [plt.Line2D([], [], ls="", marker=style[t][1], ms=7, label=label[t],
+                          mfc=SURFACE if t in VARIANTS else style[t][0],
+                          mec=style[t][0] if t in VARIANTS else SURFACE, mew=1.6 if t in VARIANTS else 1.2)
+               for t in tools]
     fig.legend(handles=handles, loc="upper center", ncol=len(tools), frameon=False,
                bbox_to_anchor=(0.5, 1.0), fontsize=8)
     shared = [f"{label[t].split(' (')[0]} {r.replace('_', ' ')}: {v['wall']:.1f} s wall, {v['cpu']:.1f} s CPU, "

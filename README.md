@@ -316,30 +316,37 @@ python3 benchmark/plot_results.py --results benchmark/results --out benchmark/re
 (`recall_vs_coverage.png`, `per_category_recall.png`, `precision_recall_f1.png`,
 `quantification.png`, `strand_accuracy.png`).
 
-### Current results (2026-10-19; all 12 libraries)
+### Current results (2026-10-21; all 12 libraries)
 
-CIRCexplorer2 and CIRI2 ran in `bsj-bench.sif` (rerun on the genome after `9087d87`, which gave the antisense
-circles real minus-strand splice sites). bsj_finder ran on the host from branch
-`dev/2026-09-29-strandedness` (`ad5b3f6`), with `library_strandedness: auto` and
-`annotation: dataset/annotation.gtf`; that is newer than the submodule pin. Its
-auto-detection called all 12 libraries correctly (8 forward, the 2 `*_rev` reverse, the 2
-`*_unstr` unstranded), using 420–1,190 spliced R1 reads per library. Full per-run numbers
-are in `benchmark/results/summary.tsv`, with plots in `benchmark/results/plots/`. Recall
-is out of 48 true BSJs, specificity out of 39 decoys, and strand accuracy is
-correct-strand ÷ TP.
+CIRCexplorer2 and CIRI2 ran in `bsj-bench.sif` (rerun on the genome after `9087d87`, which gave the
+antisense circles real minus-strand splice sites). bsj_finder ran on the host from `cc4da4f` (its
+`main`, which adds the seeding presets; the `bsj_finder` submodule is pinned there) in both presets, as two tools:
+**sensitive** (its default, `-k 11 -w 5`) and **fast** (`preset=fast`, `-k 21 -w 11`), each with
+`library_strandedness: auto` and `annotation: dataset/annotation.gtf`. A run that fails is recorded
+as `failed` in `summary.tsv` (`status` column) rather than stopping the benchmark. Full per-run
+numbers are in `benchmark/results/summary.tsv`, with plots in `benchmark/results/plots/`. Recall is
+out of 48 true BSJs, specificity out of 39 decoys, and strand accuracy is correct-strand ÷ TP.
 
 **Detection** (8 forward-stranded base libraries):
 
 | Tool | Library | Calls | TP | Precision | Recall | F1 | Specificity | Quant (Spearman) | Strand acc. |
 |------|---------|-------|----|-----------|--------|----|-------------|------------------|-------------|
-| bsj_finder | pe150_lowerr | 47 | 47 | 1.000 | 0.979 | 0.989 | 1.000 | 0.966 | 1.000 |
-| bsj_finder | pe150_higherr | 52 | 48 | 0.923 | 1.000 | 0.960 | 1.000 | 0.967 | 1.000 |
-| bsj_finder | pe100_lowerr | 47 | 47 | 1.000 | 0.979 | 0.989 | 1.000 | 0.945 | 1.000 |
-| bsj_finder | pe100_higherr | 47 | 44 | 0.936 | 0.917 | 0.926 | 1.000 | 0.951 | 1.000 |
-| bsj_finder | se150_lowerr | 47 | 47 | 1.000 | 0.979 | 0.989 | 1.000 | 0.983 | 1.000 |
-| bsj_finder | se150_higherr | 49 | 47 | 0.959 | 0.979 | 0.969 | 1.000 | 0.990 | 1.000 |
-| bsj_finder | se100_lowerr | 46 | 46 | 1.000 | 0.958 | 0.979 | 1.000 | 0.974 | 1.000 |
-| bsj_finder | se100_higherr | 44 | 44 | 1.000 | 0.917 | 0.957 | 1.000 | 0.975 | 1.000 |
+| bsj_finder (sensitive) | pe150_lowerr | 47 | 47 | 1.000 | 0.979 | 0.989 | 1.000 | 0.968 | 1.000 |
+| bsj_finder (sensitive) | pe150_higherr | 52 | 48 | 0.923 | 1.000 | 0.960 | 1.000 | 0.967 | 1.000 |
+| bsj_finder (sensitive) | pe100_lowerr | 47 | 47 | 1.000 | 0.979 | 0.989 | 1.000 | 0.948 | 1.000 |
+| bsj_finder (sensitive) | pe100_higherr | 47 | 44 | 0.936 | 0.917 | 0.926 | 1.000 | 0.951 | 1.000 |
+| bsj_finder (sensitive) | se150_lowerr | 47 | 47 | 1.000 | 0.979 | 0.989 | 1.000 | 0.984 | 1.000 |
+| bsj_finder (sensitive) | se150_higherr | 49 | 47 | 0.959 | 0.979 | 0.969 | 1.000 | 0.990 | 1.000 |
+| bsj_finder (sensitive) | se100_lowerr | 46 | 46 | 1.000 | 0.958 | 0.979 | 1.000 | 0.981 | 1.000 |
+| bsj_finder (sensitive) | se100_higherr | 44 | 44 | 1.000 | 0.917 | 0.957 | 1.000 | 0.974 | 1.000 |
+| bsj_finder (fast) | pe150_lowerr | 46 | 46 | 1.000 | 0.958 | 0.979 | 1.000 | 0.966 | 1.000 |
+| bsj_finder (fast) | pe150_higherr | 47 | 43 | 0.915 | 0.896 | 0.905 | 1.000 | 0.932 | 1.000 |
+| bsj_finder (fast) | pe100_lowerr | 44 | 44 | 1.000 | 0.917 | 0.957 | 1.000 | 0.937 | 1.000 |
+| bsj_finder (fast) | pe100_higherr | **failed** | — | — | — | — | — | — | — |
+| bsj_finder (fast) | se150_lowerr | 48 | 47 | 0.979 | 0.979 | 0.979 | 0.974 | 0.978 | 1.000 |
+| bsj_finder (fast) | se150_higherr | 45 | 43 | 0.956 | 0.896 | 0.925 | 1.000 | 0.965 | 1.000 |
+| bsj_finder (fast) | se100_lowerr | 45 | 45 | 1.000 | 0.938 | 0.968 | 1.000 | 0.973 | 1.000 |
+| bsj_finder (fast) | se100_higherr | **failed** | — | — | — | — | — | — | — |
 | CIRI2 | pe150_lowerr | 35 | 35 | 1.000 | 0.729 | 0.843 | 1.000 | 0.996 | 1.000 |
 | CIRI2 | pe150_higherr | 34 | 34 | 1.000 | 0.708 | 0.829 | 1.000 | 0.997 | 1.000 |
 | CIRI2 | pe100_lowerr | 35 | 35 | 1.000 | 0.729 | 0.843 | 1.000 | 1.000 | 1.000 |
@@ -370,7 +377,8 @@ italic rows are earlier bsj_finder commits, for comparison):
 
 | Tool | `pe150_lowerr` | `pe150_lowerr_rev` | `pe150_lowerr_unstr` | `se150_lowerr` | `se150_lowerr_rev` | `se150_lowerr_unstr` |
 |------|---|---|---|---|---|---|
-| bsj_finder | 1.000 | 1.000 | 0.957 | 1.000 | 1.000 | 0.957 |
+| bsj_finder (sensitive) | 1.000 | 1.000 | 0.957 | 1.000 | 1.000 | 0.957 |
+| bsj_finder (fast) | 1.000 | 1.000 | 0.957 | 1.000 | 1.000 | 0.957 |
 | CIRI2 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |
 | CIRCexplorer2 (de novo) | 0.812 | 0.812 | 0.812 | 0.860 | 0.860 | 0.860 |
 | CIRCexplorer2 (known) | 0.929 | 0.929 | 0.929 | 0.939 | 0.939 | 0.939 |
@@ -379,22 +387,29 @@ italic rows are earlier bsj_finder commits, for comparison):
 
 Detection is unchanged by the strand protocol, with three exceptions. CIRCexplorer2 de novo
 makes 3–5 more off-target FP calls on the unstranded libraries, and CIRI2 misses one more
-BSJ on `se150_lowerr_unstr`. bsj_finder's detection numbers are identical across all three
-commits; only the strand changes.
+BSJ on `se150_lowerr_unstr`. bsj_finder's detection (sensitive) is identical across all its
+commits since `7e851c1`; only the strand changes.
 
 Takeaways:
-- **bsj_finder** has the best detection: recall 0.92–1.00, precision ≥ 0.92, specificity 1.0
-  everywhere. It is the only tool that finds the indel-at-junction (L) circles, and the only
-  one that recovers rolling (I) and intronic (D) circles in every library. Its strand is now
-  correct for every detected BSJ in every forward- and reverse-stranded library, paired or
-  single. On unstranded libraries it infers strand from the splice motif and then the host
-  gene: 45 of 47 correct, none wrong, on both PE and SE. The two `.` calls are the
-  intergenic circles `BSJ_M_ig1`/`M_ig2`, which have non-canonical motifs (GG/GA, AC/GG) and
-  no host gene, so there is no strand evidence and `.` is the right answer. Caveat: the
-  inference order and `motif_slop: 2` were calibrated on `pe150_lowerr_unstr` (per
-  bsj_finder's `config.yaml`), so that cell is not an independent test.
-  `se150_lowerr_unstr` gives the same 0.957 and is not cited in that calibration, but a
-  freshly seeded unstranded library would be the clean check.
+- **bsj_finder (sensitive)** has the best detection: recall 0.92–1.00, precision ≥ 0.92,
+  specificity 1.0 everywhere. It is the only tool that finds the indel-at-junction (L) circles,
+  and the only one that recovers rolling (I) and intronic (D) circles in every library. Its
+  strand is correct for every detected BSJ in every forward- and reverse-stranded library,
+  paired or single. On unstranded libraries it infers strand from the splice motif and then the
+  host gene: 45 of 47 correct, none wrong, on both PE and SE. The two `.` calls are the
+  intergenic circles `BSJ_M_ig1`/`M_ig2`, which have non-canonical motifs (GG/GA, AC/GG) and no
+  host gene, so there is no strand evidence and `.` is the right answer. Caveat: the inference
+  order and `motif_slop: 2` were calibrated on `pe150_lowerr_unstr` (per bsj_finder's
+  `config.yaml`), so that cell is not an independent test. `se150_lowerr_unstr` gives the same
+  0.957 and is not cited in that calibration, but a freshly seeded unstranded library would be
+  the clean check.
+- **bsj_finder (fast)** matches sensitive on 150 bp low-error reads (46–47/48, strand unchanged)
+  and is 6–12x faster on a 1 Gbp genome (see Runtime). On 100 bp or high-error reads it loses
+  low-coverage (1–3 read) circles (43–45/48) and reports 13–38% fewer junction reads, and on
+  the two 100 bp high-error libraries it **fails**: strandedness auto-detection sees 192 / 187
+  spliced reads, below its minimum of 200, and refuses to guess. That failure is partly the
+  tiny libraries (3,568 reads); declaring `library_strandedness` avoids it. Use fast for large
+  genomes with >= 150 bp reads; keep sensitive for short or noisy reads or rare circles.
 - **CIRI2** has precision 1.0, recall about 0.69–0.73 (it misses all D, I, L and M-intergenic
   circles) and near-perfect quantification. It takes the strand from the splice motif, so its
   strand is correct for every detected BSJ in every library, whatever the protocol, including

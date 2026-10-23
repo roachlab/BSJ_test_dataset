@@ -7,11 +7,17 @@ ciri2_path: "CIRI2.pl"         # name on PATH, or absolute path to CIRI2.pl
 # bsj_finder (the pipeline being benchmarked): Snakemake pipeline added as submodule
 bsj_finder_dir: "../bsj_finder/"           # bsj_finder repo root, relative to this benchmark/ dir
 bsj_finder_merge_tol: 12        # cluster per-read breakpoints within this many bp into one call
+# bsj_finder variants, each benchmarked as its own tool (name -> extra bsj_finder --config).
+# The presets need a bsj_finder with `preset` support (cc4da4f or later).
+bsj_finder_variants:
+  bsj_finder: ""                # default `sensitive` preset: minimap2 -k 11 -w 5
+  bsj_finder_fast: "preset=fast"  # minimap2 -k 21 -w 11
 
 tools:
   - circexplorer2
   - ciri2
   - bsj_finder
+  - bsj_finder_fast
 
 # Full factorial: {pe, se} x {150, 100} bp x {lowerr, higherr} = 8 libraries.
 # Read length and library layout vary independently, so a PE-vs-SE difference can be

@@ -37,13 +37,16 @@ MERGE_TOL  = config.get("bsj_finder_merge_tol", 5)
 # extra key=value settings passed to bsj_finder's own --config (index and detection runs), e.g.
 #   bsj_finder_config="minimap2_k=21 minimap2_w=11"   (the sr preset, for large genomes)
 BF_EXTRA   = config.get("bsj_finder_config", "")
+# bsj_finder variants benchmarked as separate tools: name -> extra bsj_finder --config settings
+BF_VARIANTS = config.get("bsj_finder_variants", {"bsj_finder": "", "bsj_finder_fast": "preset=fast"})
 # GNU time around each tool's main command: one line per command, appended to the rule's
 # log.time as  wall_s  user_s  sys_s  max_rss_kb  (CPU and RSS include child processes; RSS is
 # the largest single process). Exact even for sub-second steps, unlike sampled benchmarks.
 TIME = config.get("time_bin", "/usr/bin/time") + r" -f '%e\t%U\t%S\t%M' -a -o"
 
 wildcard_constraints:
-    lib = "|".join(LIBS.keys())
+    lib = "|".join(LIBS.keys()),
+    bf = "|".join(BF_VARIANTS.keys())
 
 def reads(lib):
     L = LIBS[lib]
@@ -59,8 +62,9 @@ def all_eval_jsons():
         j += expand(RES + "/circexplorer2/eval_{lib}_known.json",  lib=LIBS)
     if "ciri2" in TOOLS:
         j += expand(RES + "/ciri2/eval_{lib}.json", lib=LIBS)
-    if "bsj_finder" in TOOLS:
-        j += expand(RES + "/bsj_finder/eval_{lib}.json", lib=LIBS)
+    for bf in BF_VARIANTS:
+        if bf in TOOLS:
+            j += expand(RES + "/" + bf + "/eval_{lib}.json", lib=LIBS)
     return j
 
 PLOTS = expand(RES + "/plots/{p}.{ext}", ext=["png", "svg"],
@@ -227,47 +231,63 @@ rule eval_ciri2:
 # ======================================================================
 # bsj_finder  (the real pipeline, driven to its detection target only)
 # ======================================================================
+# Each bsj_finder variant (config bsj_finder_variants: name -> extra bsj_finder --config, e.g.
+# bsj_finder = its default `sensitive` preset, bsj_finder_fast = preset=fast) is benchmarked as its
+# own tool under {RES}/{bf}/, with its own minimap2 index (the preset changes -k/-w).
+#
 # One-off minimap2 index, built by bsj_finder's own pipeline (its minimap2_index rule) into a
 # shared outdir and linked into every library's work dir, so -- like the STAR and BWA indexes --
 # it is timed once instead of inside every library run. bsj_finder insists on a read directory
 # with samples, so the shared run is pointed at the small se150_lowerr library (never processed:
 # the only target is the index).
 rule bsj_finder_index:
-    log: time=RES + "/timing/bsj_finder/shared.bsj_finder_index.tsv"
+    log: time=RES + "/timing/{bf}/shared.bsj_finder_index.tsv"
     input: fa=GENOME, reads=os.path.join(DATASET, "reads_se150_lowerr.fastq.gz")
-    output: mmi=RES + "/bsj_finder/shared/ref/genome.mmi"
-    params: bfdir=BSJ_FINDER, time=TIME
+    output: mmi=RES + "/{bf}/shared/ref/genome.mmi"
+    params: bfdir=BSJ_FINDER, time=TIME, extra=lambda wc: BF_VARIANTS[wc.bf]
     threads: THREADS
     shell:
         r"""
         : > {log.time}
-        SH={RES}/bsj_finder/shared
+        SH={RES}/{wildcards.bf}/shared
         mkdir -p "$SH/reads"
         ln -sf "$(cd "$(dirname {input.reads})" && pwd)/$(basename {input.reads})" "$SH/reads/index_only.fastq.gz"
         BFDIR=$(cd {params.bfdir} && pwd)
         GEN=$(cd "$(dirname {input.fa})" && pwd)/$(basename {input.fa})
         SH_ABS=$(cd "$SH" && pwd)
         {params.time} {log.time} snakemake -s "$BFDIR/Snakefile" -d "$BFDIR" --cores {threads} --use-conda \
-            --config readDirectory="$SH_ABS/reads" genome="$GEN" outdir="$SH_ABS" {BF_EXTRA} \
-            -- "$SH_ABS/ref/genome.mmi"
+            --config readDirectory="$SH_ABS/reads" genome="$GEN" outdir="$SH_ABS" {params.extra} {BF_EXTRA} \
+            -- "$SH_ABS/ref/genome.mmi" > "$SH_ABS/bsj_finder.log" 2>&1 || {{ cat "$SH_ABS/bsj_finder.log" >&2; exit 1; }}
+        # A bsj_finder without presets (before cc4da4f) silently ignores preset=..., which would turn
+        # the fast variant into a second sensitive run. It prints "seeding preset: ..." if it has them.
+        case "{params.extra} {BF_EXTRA}" in *preset=*)
+            grep -q "seeding preset: " "$SH_ABS/bsj_finder.log" || {{
+                echo "bsj_finder at $BFDIR has no seeding presets (needs cc4da4f or later); set bsj_finder_dir" >&2
+                rm -f {output.mmi}; exit 1; }} ;;
+        esac
+        grep -h "seeding preset: " "$SH_ABS/bsj_finder.log" | head -1
         """
 
+# A bsj_finder run that fails (e.g. strandedness auto-detection refusing on a small, noisy
+# library) is recorded, not fatal: an empty call set plus {lib}.status = "failed: <reason>", which
+# evaluate.py carries into the JSON / summary.tsv. Successful runs write "ok".
 rule bsj_finder_detect:
-    log: time=RES + "/timing/bsj_finder/{lib}.bsj_finder_detect.tsv"
+    log: time=RES + "/timing/{bf}/{lib}.bsj_finder_detect.tsv"
     input:
         reads=lambda wc: reads(wc.lib),
-        mmi=RES + "/bsj_finder/shared/ref/genome.mmi"
+        mmi=RES + "/{bf}/shared/ref/genome.mmi"
     output:
-        tsv=RES + "/bsj_finder/{lib}.bsj_cor.tsv.gz"
+        tsv=RES + "/{bf}/{lib}.bsj_cor.tsv.gz",
+        status=RES + "/{bf}/{lib}.status"
     params:
-        genome=GENOME, gtf=GTF, bfdir=BSJ_FINDER, time=TIME
+        genome=GENOME, gtf=GTF, bfdir=BSJ_FINDER, time=TIME, extra=lambda wc: BF_VARIANTS[wc.bf]
     threads: THREADS
     shell:
         r"""
         : > {log.time}
-        mkdir -p {RES}/bsj_finder
-        RDIR={RES}/bsj_finder/reads/{wildcards.lib}
-        WORK={RES}/bsj_finder/work/{wildcards.lib}
+        mkdir -p {RES}/{wildcards.bf}
+        RDIR={RES}/{wildcards.bf}/reads/{wildcards.lib}
+        WORK={RES}/{wildcards.bf}/work/{wildcards.lib}
         rm -rf "$RDIR"; mkdir -p "$RDIR" "$WORK"
         set -- {input.reads}
         if [ "$#" -eq 1 ]; then
@@ -286,28 +306,36 @@ rule bsj_finder_detect:
         WORK_ABS=$(cd "$WORK" && pwd)
         mkdir -p "$WORK_ABS/ref"                       # reuse the shared index (see bsj_finder_index)
         ln -sf "$(cd "$(dirname {input.mmi})" && pwd)/genome.mmi" "$WORK_ABS/ref/genome.mmi"
-        {params.time} {log.time} snakemake -s "$BFDIR/Snakefile" -d "$BFDIR" --cores {threads} --use-conda \
-            --config readDirectory="$RDIR_ABS" genome="$GEN" annotation="$GTF_ABS" outdir="$WORK_ABS" {BF_EXTRA} \
-            -- "$WORK_ABS/bsj_results/{wildcards.lib}.bsj_cor.tsv.gz"
-        cp "$WORK_ABS/bsj_results/{wildcards.lib}.bsj_cor.tsv.gz" {output.tsv}
+        if {params.time} {log.time} snakemake -s "$BFDIR/Snakefile" -d "$BFDIR" --cores {threads} --use-conda \
+            --config readDirectory="$RDIR_ABS" genome="$GEN" annotation="$GTF_ABS" outdir="$WORK_ABS" {params.extra} {BF_EXTRA} \
+            -- "$WORK_ABS/bsj_results/{wildcards.lib}.bsj_cor.tsv.gz" > "$WORK_ABS/bsj_finder.log" 2>&1; then
+            cp "$WORK_ABS/bsj_results/{wildcards.lib}.bsj_cor.tsv.gz" {output.tsv}
+            echo ok > {output.status}
+        else
+            REASON=$(grep -h -m1 -E 'could not determine|Error|error' "$WORK_ABS/bsj_finder.log" | head -1 | cut -c1-200)
+            echo "failed: ${{REASON:-see $WORK/bsj_finder.log}}" > {output.status}
+            gzip -c < /dev/null > {output.tsv}
+            echo "bsj_finder {wildcards.bf} {wildcards.lib}: $(cat {output.status})" >&2
+        fi
         """
 
 rule bsj_finder_bed:
-    log: time=RES + "/timing/bsj_finder/{lib}.bsj_finder_bed.tsv"
-    input: tsv=RES + "/bsj_finder/{lib}.bsj_cor.tsv.gz"
-    output: bed=RES + "/bsj_finder/{lib}.bsj.bed"
+    log: time=RES + "/timing/{bf}/{lib}.bsj_finder_bed.tsv"
+    input: tsv=RES + "/{bf}/{lib}.bsj_cor.tsv.gz"
+    output: bed=RES + "/{bf}/{lib}.bsj.bed"
     params: tol=MERGE_TOL, time=TIME
     shell:
         ": > {log.time}; {params.time} {log.time} python3 bsj_finder_to_bed.py --in {input.tsv} --out {output.bed} --merge-tol {params.tol}"
 
 rule eval_bsj_finder:
-    input: calls=RES + "/bsj_finder/{lib}.bsj.bed"
-    output: RES + "/bsj_finder/eval_{lib}.json"
+    input: calls=RES + "/{bf}/{lib}.bsj.bed", status=RES + "/{bf}/{lib}.status"
+    output: RES + "/{bf}/eval_{lib}.json"
     params: tol=BASE_TOL, ds=DATASET
     shell:
-        "python3 evaluate.py --tool bed --tool-name bsj_finder --calls {input.calls} "
+        "python3 evaluate.py --tool bed --tool-name {wildcards.bf} --calls {input.calls} "
         "--dataset {params.ds} --library {wildcards.lib} --base-tol {params.tol} "
-        "--out-prefix {RES}/bsj_finder/eval_{wildcards.lib}"
+        "--status \"$(cat {input.status})\" "
+        "--out-prefix {RES}/{wildcards.bf}/eval_{wildcards.lib}"
 
 # ======================================================================
 # Aggregate + plot

@@ -9,10 +9,11 @@ def main():
     if not files:
         print(f"No *.json under {root}/ (run the pipelines first)"); return
     cols = ["tool", "library", "strandedness", "calls", "TP", "FN", "FP", "precision", "recall",
-            "f1", "specificity", "accuracy", "quant_spearman", "strand_accuracy", "recall_strand"]
+            "f1", "specificity", "accuracy", "quant_spearman", "strand_accuracy", "recall_strand", "status"]
     rows = []
     for f in files:
         d = json.load(open(f))
+        d.setdefault("status", "ok")       # results from before status was recorded
         variant = os.path.basename(f).replace("eval_", "").replace(".json", "")
         d["tool"] = f"{d['tool']}"
         d["library"] = variant

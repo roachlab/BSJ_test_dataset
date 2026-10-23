@@ -197,6 +197,8 @@ def main():
     ap.add_argument("--base-tol", type=int, default=2,
                     help="baseline breakpoint tolerance (added to per-junction tol)")
     ap.add_argument("--out-prefix", default=None)
+    ap.add_argument("--status", default="ok",
+                    help="run status to record, e.g. 'failed: <reason>' when the tool produced no output")
     a = ap.parse_args()
 
     tool_name = a.tool_name or a.tool
@@ -263,7 +265,7 @@ def main():
     strand_by_truth = {s: f"{sum(1 for b in s_ok if b['strand'] == s)}/"
                           f"{sum(1 for b in found if b['strand'] == s)}" for s in ("+", "-")}
 
-    res = dict(tool=tool_name, library=a.library, strandedness=strandedness, calls=len(calls),
+    res = dict(tool=tool_name, library=a.library, status=a.status, strandedness=strandedness, calls=len(calls),
                P=P, N=Nn, TP=TP, FN=FN, FP=FP, FP_on_decoy=FP_decoy, FP_offtarget=FP_off, TN=TN,
                precision=precision, recall=recall, f1=f1, specificity=specificity,
                accuracy=accuracy, fdr=fdr,
@@ -280,6 +282,8 @@ def main():
 
     def fmt(x): return "nan" if x != x else f"{x:.3f}"
     print(f"\n=== {tool_name}  [{a.library}, strandedness={strandedness}] ===")
+    if a.status != "ok":
+        print(f"status: {a.status}")
     print(f"calls={len(calls)}  P(true)={P}  N(decoy)={Nn}")
     print(f"TP={TP}  FN={FN}  FP={FP} (decoy={FP_decoy}, off-target={FP_off})  TN={TN}")
     print(f"precision={fmt(precision)}  recall={fmt(recall)}  F1={fmt(f1)}")
